@@ -1,0 +1,18 @@
+FROM dataloopai/dtlpy-agent:gpu.cuda.11.8.py3.10.pytorch2
+
+USER 1000
+
+# Add this to solve this issue :
+# File "/tmp/.local/lib/python3.10/site-packages/transformers/utils/import_utils.py", line 1955, in __getattr__
+#   module = self._get_module(self._class_to_module[name])
+# File "/tmp/.local/lib/python3.10/site-packages/transformers/utils/import_utils.py", line 1969, in _get_module
+#   raise RuntimeError(
+# RuntimeError: Failed to import transformers.models.bloom.modeling_bloom because of the following error (look up to see its traceback):
+# module 'torch' has no attribute 'compiler'
+RUN pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cu118
+
+RUN pip install dtlpy
+
+RUN pip install --user git+https://github.com/roboflow/rf-detr.git
+
+    

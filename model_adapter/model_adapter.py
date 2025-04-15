@@ -1,79 +1,121 @@
-import dtlpy as dl
-import torch
+import logging
 import os
+import torch
 import numpy as np
+import requests
+import dtlpy as dl
 
-class SimpleModelAdapter(dl.BaseModelAdapter):
+from rfdetr import RFDETRBase
+from rfdetr.util.coco_classes import COCO_CLASSES
+
+logger = logging.getLogger('rf-dert-adapter')
+
+
+class ModelAdapter(dl.BaseModelAdapter):
+
+    @staticmethod
+    def _download_weights(url):
+        if url is None:
+            return None
+        try:
+            logger.info(f'Downloading weights from: {url}')
+            response = requests.get(url, stream=True, timeout=30)
+            response.raise_for_status()
+
+            # Create temp file with .pth extension in weights dir
+            model_filepath = os.path.join('/tmp/app/weights', f'model_{np.random.randint(0, 1000000)}.pth')
+
+            with open(model_filepath, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+            logger.info(f'Weights downloaded to: {model_filepath}')
+            return model_filepath
+
+        except (requests.exceptions.RequestException, IOError) as e:
+            logger.error(f"Error downloading weights from {url}: {str(e)}")
+            return None
+
     def load(self, local_path, **kwargs):
         """Load your model from saved weights"""
-        print('🔄 Loading model from:', local_path)
-        self.model = torch.load(os.path.join(local_path, 'model.pth'),weights_only=False)
-        self.model.eval()
-        print(f'-HHH- load 11 : {type(self.model)}')
+        model_filename = self.configuration.get('weights_filename', 'model.pth')
+        model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
+        if not os.path.isfile(model_filepath):
+            tmp_dir = '/tmp/app/weights'
+            if os.path.isfile(tmp_dir + model_filename):
+                model_filepath = tmp_dir + model_filename
+            else:
+                url = self.configuration.get('weights_url')
+                # Download file to temporary location
+                model_filepath = ModelAdapter._download_weights(url)
 
-    # TODO : no need to do this preprocess, rether need to override prepare item function prepare_item_func
-    # which convert item to image.
+        self.confidence_threshold = self.configuration.get('conf_thres', 0.25)
 
-    def preprocess(self, batch):
-        # Convert batch to PyTorch tensor
-        if isinstance(batch, list):
-            # If batch is a list of numpy arrays
-            batch = torch.tensor(batch, dtype=torch.float32)
-        elif isinstance(batch, np.ndarray):
-            # If batch is a single numpy array
-            batch = torch.from_numpy(batch).float()
-        
-        # Reshape from NHWC to NCHW format
-        if len(batch.shape) == 4:  # If batch is [N, H, W, C]
-            batch = batch.permute(0, 3, 1, 2)  # Change to [N, C, H, W]
-        
-        return batch
+        # not sure if self.device is needed
+        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+        device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
+        logger.info(
+            f'Confidence threshold: {self.confidence_threshold}, model_filepath: {model_filepath}, device: {device_name}'
+        )
+        self.model = RFDETRBase(pretrain_weights=model_filepath, device=device_name)
+
+    # rf-dert is resize, normalize and convert to tensor in the model
+    # nothing to do here
+    # def prepare_item_func(self, item):
+    #     pass
 
     def predict(self, batch, **kwargs):
         """Run predictions on a batch of data"""
-        print(f'🎯 Predicting batch of size: {len(batch)}')
+        logger.info(f'Predicting batch of size: {len(batch)}')
+        image_annotations = dl.AnnotationCollection()
+        results = self.model.predict(batch, threshold=self.confidence_threshold)
 
-        batch_tensor = self.preprocess(batch)
-        
-        # Get model predictions
-        preds = self.model(batch_tensor)
-        batch_predictions = torch.nn.functional.softmax(preds, dim=1)
-        # Convert predictions to Dataloop format
-        batch_annotations = list()
-        for img_prediction in batch_predictions:
-            pred_score, high_pred_index = torch.max(img_prediction, 0)
-            pred_label = self.model_entity.id_to_label_map.get(int(high_pred_index.item()), 'UNKNOWN')
-            collection = dl.AnnotationCollection()
-            collection.add(annotation_definition=dl.Classification(label=pred_label),
-                           model_info={'name': self.model_entity.name,
-                                       'confidence': pred_score.item(),
-                                       'model_id': self.model_entity.id,
-                                       'dataset_id': self.model_entity.dataset_id})
-            batch_annotations.append(collection)
-            
+        batch_annotations = []
+        # model.predicts returns a list if batch is a list but a single object if batch is a single object
+        if not isinstance(results, list):
+            results = [results]
+        for detection in results:
+            image_annotations = dl.AnnotationCollection()
+            for xyxy, class_id, conf in zip(detection.xyxy, detection.class_id, detection.confidence):
+                label = COCO_CLASSES[class_id]
+                image_annotations.add(
+                    dl.Box(left=xyxy[0], top=xyxy[1], right=xyxy[2], bottom=xyxy[3], label=label),
+                    model_info={
+                        'name': self.model_entity.name,
+                        'model_id': self.model_entity.id,
+                        'confidence': conf,
+                        'dataset_id': self.model_entity.dataset_id,
+                    },
+                )
+            batch_annotations.append(image_annotations)
         return batch_annotations
-    
-# if __name__ == '__main__':
-#     from dotenv import load_dotenv
 
-#     print('-HHH- load dotenv')
-#     # Load environment variables from .env file
-#     load_dotenv()
 
-#     # Create a default configuration
-#     dl.login_api_key(api_key=os.environ['DTLPY_API_KEY'])
+if __name__ == '__main__':
+    # Smart login with token handling
+    # if dl.token_expired():
+    #     dl.login()
 
-#     project = dl.projects.get(project_name='ShadiDemo')
-#     dataset = project.datasets.get(dataset_name='nvidia-husam-clone-updated-name')
+    dl.login_api_key(
+        api_key='eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJlbWFpbCI6Imh1c2FtLm1AZGF0YWxvb3AuYWkiLCJpc3MiOiJodHRwczovL2dhdGUuZGF0YWxvb3AuYWkvMSIsImF1ZCI6Imh0dHBzOi8vZ2F0ZS5kYXRhbG9vcC5haS9hcGkvdjEiLCJpYXQiOjE3NDQwMzE5MjksImV4cCI6MTc3NDc5MDMyOSwic3ViIjoiYXBpa2V5fDM1YWQ0NWVjLTg2MjEtNGYxOC1iODc0LTJkMTFkZjdlZmI2MiIsImh0dHBzOi8vZGF0YWxvb3AuYWkvYXV0aG9yaXphdGlvbiI6eyJ1c2VyX3R5cGUiOiJhcGlrZXkiLCJyb2xlcyI6W119fQ.GlmZ1z9pjnDsdPoHc81inCZVJ-ZmZiwBS4gXfJIl3Ns2EwKl3LcJvDxUCU5ag6s_UpBhx1cSPJZhYe5eXrOjVORD1UJ4wPcVsd1_rzK5PN_skIsOjBdb7IngbAWWfW8cth_ByrKBWtEkGTwt40eN5FpCt-Wy7QP0spuBl_Tye7k3ReynSsO8au6W7qUm4PsvU4UHKWjywRQSH3usfOrsIwFJW4NyIAGdOyHS5Gekba1s26ZygOwlws5EeTFUAmWmLYKRYKh9K_n5e9uWHjgpbxkQsvnCAs9hnACudAMY37LN8KRgdmHOiaU-OZ1c7rSxx_S98a8hihXr2KYRbbm8zg'
+    )
 
-#     model_id = '67fcc4cb06f7dc614feaf3e3'
-#     print('-HHH- get model')
-#     model = project.models.get(model_id=model_id)
-#     print(f'-HHH- model: {model}')
-#     print('-HHH- create model adapter')
-#     model_adapter = SimpleModelAdapter(model)
-#     item = dataset.items.get(item_id='67fbfd5b80e326df43dd9c03')
-#     print(f'-HHH- get item: {item}')
-#     predict_res = model_adapter.predict_items(items=[item])
-#     print(f'-HHH- predict res: {predict_res}')
+    project = dl.projects.get(project_name='ShadiDemo')
+    dataset = project.datasets.get(dataset_name='nvidia-husam-clone-updated-name')
 
+    model_id = '67fe3466f41fe3efebd2c433'
+    print('-HHH- get model')
+    model = project.models.get(model_id=model_id)
+    print('-HHH- create model adapter')
+    model_adapter = ModelAdapter(model)
+    predict_res = model_adapter.predict_items(
+        items=[
+            dataset.items.get(item_id='67ff9d8a18076275e55bd5ea'),
+            dataset.items.get(item_id='67fbfb21489a0f6f359ee478'),
+        ]
+    )
+
+    predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
+    print(f'-HHH- predict res: {predict_res}')

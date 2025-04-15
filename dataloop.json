@@ -1,0 +1,223 @@
+{
+    "name": "rf-dert",
+    "displayName": "RoboFlow DERT",
+    "version": "6.0.0",
+    "scope": "project",
+    "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
+    "attributes": {
+        "Category": "Application",
+        "Provider": "Dataloop",
+        "Deployed By": "Dataloop",
+        "License": "MIT",
+        "Application Type": "Pipeline Node",
+        "Media Type": [
+            "All Media Types"
+        ]
+    },
+    "components": {
+        "computeConfigs": [
+            {
+                "name": "rf-detr-deploy",
+                "runtime": {
+                    "podType": "regular-xs",
+                    "concurrency": 1,
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr:0.0.4",
+                    "autoscaler": {
+                        "type": "rabbitmq",
+                        "minReplicas": 0,
+                        "maxReplicas": 2,
+                        "queueLength": 100
+                    }
+                }
+            },
+            {
+                "name": "rf-detr-train-evaluate",
+                "runtime": {
+                    "podType": "gpu-t4",
+                    "concurrency": 1,
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr:0.0.4",
+                    "autoscaler": {
+                        "type": "rabbitmq",
+                        "minReplicas": 0,
+                        "maxReplicas": 2,
+                        "queueLength": 100
+                    }
+                },
+                "executionTimeout": 36000000
+            }
+        ],
+        "modules": [
+            {
+                "name": "rf-dert-module",
+                "entryPoint": "model_adapter.py",
+                "className": "ModelAdapter",
+                "computeConfig": "inference-service",
+                "description": "RF-DETR is a real-time, transformer-based object detection model architecture developed by Roboflow",
+                "initInputs": [
+                    {
+                        "type": "Model",
+                        "name": "model_entity"
+                    }
+                ],
+                "functions": [
+                    {
+                        "name": "evaluate_model",
+                        "computeConfig": "rf-detr-train-evaluate",
+                        "input": [
+                            {
+                                "type": "Model",
+                                "name": "model",
+                                "description": "Dataloop Model Entity"
+                            },
+                            {
+                                "type": "Dataset",
+                                "name": "dataset",
+                                "description": "Dataloop Dataset Entity"
+                            },
+                            {
+                                "type": "Json",
+                                "name": "filters",
+                                "description": "Dataloop Filter DQL"
+                            }
+                        ],
+                        "output": [
+                            {
+                                "type": "Model",
+                                "name": "model",
+                                "description": "Dataloop Model Entity"
+                            },
+                            {
+                                "type": "Dataset",
+                                "name": "dataset",
+                                "description": "Dataloop Dataset Entity"
+                            }
+                        ],
+                        "displayName": "Evaluate a Model",
+                        "displayIcon": "",
+                        "description": "Function to evaluate rf-detr model performance"
+                    },
+                    {
+                        "name": "predict_items",
+                        "input": [
+                            {
+                                "type": "Item[]",
+                                "name": "items",
+                                "description": "List of items to run inference on"
+                            }
+                        ],
+                        "output": [
+                            {
+                                "type": "Item[]",
+                                "name": "items",
+                                "description": "The same input images for prediction."
+                            },
+                            {
+                                "type": "Annotation[]",
+                                "name": "annotations",
+                                "description": "The predicted annotations."
+                            }
+                        ],
+                        "displayName": "Predict Items",
+                        "displayIcon": "",
+                        "description": "Function to run rf-detr inference on items"
+                    },
+                    {
+                        "name": "train_model",
+                        "computeConfig": "rf-detr-train-evaluate",
+                        "input": [
+                            {
+                                "type": "Model",
+                                "name": "model",
+                                "description": "Dataloop Model Entity"
+                            }
+                        ],
+                        "output": [
+                            {
+                                "type": "Model",
+                                "name": "model",
+                                "description": "Dataloop Model Entity"
+                            }
+                        ],
+                        "displayName": "Train a Model",
+                        "displayIcon": "",
+                        "description": "Function to train rf-detr model"
+                    },
+                    {
+                        "name": "predict_dataset",
+                        "input": [
+                            {
+                                "type": "Dataset",
+                                "name": "dataset",
+                                "description": ""
+                            },
+                            {
+                                "type": "Json",
+                                "name": "filters",
+                                "description": "Dataloop Filter DQL"
+                            }
+                        ],
+                        "output": [],
+                        "displayName": "Predict Dataset",
+                        "displayIcon": "",
+                        "description": "Function to run rf-detr inference on a dataset"
+                    },
+                    {
+                        "name": "embed_items",
+                        "input": [
+                            {
+                                "type": "Item[]",
+                                "name": "items",
+                                "description": "The input items for embeddings."
+                            }
+                        ],
+                        "output": [
+                            {
+                                "type": "Item[]",
+                                "name": "items",
+                                "description": "The same input items for embeddings."
+                            },
+                            {
+                                "type": "Json",
+                                "name": "json",
+                                "description": "Embeddings of items."
+                            }
+                        ],
+                        "displayName": "Embed Items",
+                        "displayIcon": "icon-dl-embeddings",
+                        "description": "Extract features function of the model for a list of items."
+                    },
+                    {
+                        "name": "embed_dataset",
+                        "input": [
+                            {
+                                "type": "Dataset",
+                                "name": "dataset",
+                                "description": "The input dataset of the items required for embedding."
+                            },
+                            {
+                                "type": "Json",
+                                "name": "filters",
+                                "description": "The DQL in json format to get all the items required for embedding."
+                            }
+                        ],
+                        "output": [],
+                        "displayName": "Embed Dataset",
+                        "displayIcon": "icon-dl-embeddings",
+                        "description": "Extract features function of the model for a dataset."
+                    }
+                ]
+            }
+        ],
+        "models": [
+            {
+                "name": "rf-dert",
+                "moduleName": "rf-dert-module",
+                "configuration": {
+                    "weights_filename": "model.pth",
+                    "batch_size": 4,
+                    "confidence_threshold": 0.25
+                }
+            }
+        ]
+    }
+}

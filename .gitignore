@@ -1,3 +1,4 @@
-*.ipynb
 /venv
 .venv
+.env
+*.pth
