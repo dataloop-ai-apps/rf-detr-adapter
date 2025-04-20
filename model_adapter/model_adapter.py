@@ -62,7 +62,9 @@ class ModelAdapter(dl.BaseModelAdapter):
 
     def save(self, local_path: str, **kwargs) -> None:
         logger.info(f'Saving model to {local_path}')
-        self.configuration.update({'weights_filename': 'weights/best.pt'})
+        weights_filename = kwargs.get('weights_filename', 'model.pth')
+        torch.save(self.model, os.path.join(local_path, weights_filename))
+        self.configuration['weights_filename'] = weights_filename
 
     def load(self, local_path: str, **kwargs) -> None:
         """Load your model from saved weights"""
@@ -72,8 +74,9 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         if not os.path.isfile(model_filepath):
             tmp_dir = '/tmp/app/weights'
-            if os.path.isfile(tmp_dir + model_filename):
-                model_filepath = tmp_dir + model_filename
+            temp_model_path = os.path.join(tmp_dir, model_filename)
+            if os.path.isfile(temp_model_path):
+                model_filepath = temp_model_path
             else:
                 url = self.configuration.get('weights_url')
                 # Download file to temporary location
