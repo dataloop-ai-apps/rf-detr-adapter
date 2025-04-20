@@ -40,7 +40,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             return None
 
     @staticmethod
-    def copy_files(src_path, dst_path):
+    def _copy_files(src_path, dst_path):
         subfolders = [x[0] for x in os.walk(src_path)]
         os.makedirs(dst_path, exist_ok=True)
 
@@ -54,6 +54,9 @@ class ModelAdapter(dl.BaseModelAdapter):
                     new_filename = f"{relative_path.replace(os.sep, '_')}_{filename}"
                     new_file_path = os.path.join(dst_path, new_filename)
                     shutil.copy(file_path, new_file_path)
+
+    def save(self, local_path, **kwargs):
+        self.configuration.update({'weights_filename': 'weights/best.pt'})
 
     def load(self, local_path, **kwargs):
         """Load your model from saved weights"""
@@ -176,6 +179,16 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         # Determine Device
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+        # model.train(dataset_dir=<DATASET_PATH>, epochs=10, batch_size=4, grad_accum_steps=4, lr=1e-4, output_dir=<OUTPUT_PATH>)
+        self.model.train(
+            dataset_dir=data_path,
+            epochs=epochs,
+            batch_size=batch_size,
+            grad_accum_steps=grad_accum_steps,
+            lr=lr,
+            output_dir=output_path,
+        )
 
 
 if __name__ == '__main__':
