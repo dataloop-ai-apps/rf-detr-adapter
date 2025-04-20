@@ -1,11 +1,13 @@
 import logging
 import os
 import shutil
+from typing import Optional, List, Any
 import torch
 import numpy as np
 import requests
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
+
 
 from rfdetr import RFDETRBase
 from rfdetr.util.coco_classes import COCO_CLASSES
@@ -16,8 +18,9 @@ logger = logging.getLogger('rf-dert-adapter')
 class ModelAdapter(dl.BaseModelAdapter):
 
     @staticmethod
-    def _download_weights(url):
+    def _download_weights(url: str) -> Optional[str]:
         if url is None:
+            logger.warning("No URL provided for weights download")
             return None
         try:
             logger.info(f'Downloading weights from: {url}')
@@ -36,11 +39,12 @@ class ModelAdapter(dl.BaseModelAdapter):
             return model_filepath
 
         except (requests.exceptions.RequestException, IOError) as e:
-            logger.error(f"Error downloading weights from {url}: {str(e)}")
+            logger.error(f"Error downloading weights: {str(e)}")
             return None
 
     @staticmethod
-    def _copy_files(src_path, dst_path):
+    def _copy_files(src_path: str, dst_path: str) -> None:
+        logger.info(f'Copying files from {src_path} to {dst_path}')
         subfolders = [x[0] for x in os.walk(src_path)]
         os.makedirs(dst_path, exist_ok=True)
 
@@ -54,14 +58,18 @@ class ModelAdapter(dl.BaseModelAdapter):
                     new_filename = f"{relative_path.replace(os.sep, '_')}_{filename}"
                     new_file_path = os.path.join(dst_path, new_filename)
                     shutil.copy(file_path, new_file_path)
+        logger.info('File copy completed')
 
-    def save(self, local_path, **kwargs):
+    def save(self, local_path: str, **kwargs) -> None:
+        logger.info(f'Saving model to {local_path}')
         self.configuration.update({'weights_filename': 'weights/best.pt'})
 
-    def load(self, local_path, **kwargs):
+    def load(self, local_path: str, **kwargs) -> None:
         """Load your model from saved weights"""
+        logger.info(f'Loading model from {local_path}')
         model_filename = self.configuration.get('weights_filename', 'model.pth')
         model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
+
         if not os.path.isfile(model_filepath):
             tmp_dir = '/tmp/app/weights'
             if os.path.isfile(tmp_dir + model_filename):
@@ -77,9 +85,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
-        logger.info(
-            f'Confidence threshold: {self.confidence_threshold}, model_filepath: {model_filepath}, device: {device_name}'
-        )
+
+        logger.info(f'Loading model with confidence threshold: {self.confidence_threshold}')
         self.model = RFDETRBase(pretrain_weights=model_filepath, device=device_name)
 
     # rf-dert is resize, normalize and convert to tensor in the model
@@ -87,16 +94,16 @@ class ModelAdapter(dl.BaseModelAdapter):
     # def prepare_item_func(self, item):
     #     pass
 
-    def predict(self, batch, **kwargs):
+    def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
         """Run predictions on a batch of data"""
         logger.info(f'Predicting batch of size: {len(batch)}')
-        image_annotations = dl.AnnotationCollection()
         results = self.model.predict(batch, threshold=self.confidence_threshold)
 
         batch_annotations = []
         # model.predicts returns a list if batch is a list but a single object if batch is a single object
         if not isinstance(results, list):
             results = [results]
+
         for detection in results:
             image_annotations = dl.AnnotationCollection()
             for xyxy, class_id, conf in zip(detection.xyxy, detection.class_id, detection.confidence):
@@ -113,41 +120,43 @@ class ModelAdapter(dl.BaseModelAdapter):
             batch_annotations.append(image_annotations)
         return batch_annotations
 
-    def convert_from_dtlpy(self, data_path, **kwargs):
-        ##############
-        # Validation #
-        ##############
-        # TODO : non of the models in shadi demo have subsets
+    def convert_from_dtlpy(self, data_path: str, **kwargs) -> None:
+        logger.info(f'Converting dataset from Dataloop format at {data_path}')
+
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
         if subsets is None:
+            logger.error("Model metadata is missing 'subsets'")
             raise ValueError('Model metadata is missing "subsets". Cannot continue without subset definitions.')
 
         for subset in ['train', 'validation', 'test']:
             if subset not in subsets:
+                logger.error(f"Missing required subset: {subset}")
                 raise ValueError(
                     f'Missing {subset} set. rf-detr requires train, validation and test sets for training. Add a {subset} set DQL filter in the dl.Model metadata'
                 )
 
         if len(self.model_entity.labels) == 0:
+            logger.error("Model has no labels defined")
             raise ValueError('model.labels is empty. Model entity must have labels')
 
         # TODO : learn how this code works ( add debug messages)
         for subset, filters_dict in subsets.items():
+            logger.info(f'Processing subset: {subset}')
             filters = dl.Filters(custom_filter=filters_dict)
             filters.add_join(field='type', values=['box'], operator=dl.FILTERS_OPERATIONS_IN)
             filters.page_size = 0
             pages = self.model_entity.dataset.items.list(filters=filters)
             if pages.items_count == 0:
+                logger.error(f"No box annotations found in subset: {subset}")
                 raise ValueError(
-                    f'Could find box annotations in subset {subset}. Cannot train without annotation in the data subsets'
+                    f'Could not find box annotations in subset {subset}. Cannot train without annotations in the data subsets'
                 )
 
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
-        # start by converting dataloop format to coco format
         for subset_name in subsets.keys():
+            logger.info(f'Converting subset: {subset_name} to COCO format')
             dist_dir_name = subset_name if subset_name != 'validation' else 'valid'
-            # self.dtlpy_to_yolo(input_path=data_path, output_path=data_path, model_entity=self.model_entity)
             input_annotations_path = os.path.join(data_path, subset_name, 'json')
             output_annotations_path = os.path.join(data_path, dist_dir_name, '_annotations.coco.json')
 
@@ -159,28 +168,29 @@ class ModelAdapter(dl.BaseModelAdapter):
                 dataset=self.model_entity.dataset,
                 filters=dl.Filters(custom_filter=subsets[subset_name]),
             )
+
             coco_converter_services = services.converters_service.DataloopConverters()
             loop = coco_converter_services._get_event_loop()
             try:
                 loop.run_until_complete(converter.convert_dataset())
             except Exception as e:
-                raise e
+                logger.error(f"Error converting subset {subset_name}: {str(e)}")
+                raise
 
             src_images_path = os.path.join(data_path, subset_name, 'items')
             dst_images_path = os.path.join(data_path, dist_dir_name)
-            self.copy_files(src_images_path, dst_images_path)
+            self._copy_files(src_images_path, dst_images_path)
 
-    def train(self, data_path, output_path, **kwargs):
-        # Load Configurations start with epochs=10, batch_size=4, grad_accum_steps=4, lr=1e-4
+    def train(self, data_path: str, output_path: str, **kwargs) -> None:
+        logger.info(f'Starting training with data from {data_path}')
+
         epochs = self.configuration.get('epochs', 10)
         batch_size = self.configuration.get('batch_size', 4)
         grad_accum_steps = self.configuration.get('grad_accum_steps', 4)
         lr = self.configuration.get('lr', 1e-4)
 
-        # Determine Device
-        device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
+        logger.info(f'Training configuration: epochs={epochs}, batch_size={batch_size}, lr={lr}')
 
-        # model.train(dataset_dir=<DATASET_PATH>, epochs=10, batch_size=4, grad_accum_steps=4, lr=1e-4, output_dir=<OUTPUT_PATH>)
         self.model.train(
             dataset_dir=data_path,
             epochs=epochs,
@@ -189,6 +199,8 @@ class ModelAdapter(dl.BaseModelAdapter):
             lr=lr,
             output_dir=output_path,
         )
+
+        logger.info('Training completed')
 
 
 if __name__ == '__main__':
