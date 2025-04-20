@@ -1,9 +1,11 @@
 import logging
 import os
+import shutil
 import torch
 import numpy as np
 import requests
 import dtlpy as dl
+from dtlpyconverters import services, coco_converters
 
 from rfdetr import RFDETRBase
 from rfdetr.util.coco_classes import COCO_CLASSES
@@ -36,6 +38,22 @@ class ModelAdapter(dl.BaseModelAdapter):
         except (requests.exceptions.RequestException, IOError) as e:
             logger.error(f"Error downloading weights from {url}: {str(e)}")
             return None
+
+    @staticmethod
+    def copy_files(src_path, dst_path):
+        subfolders = [x[0] for x in os.walk(src_path)]
+        os.makedirs(dst_path, exist_ok=True)
+
+        for subfolder in subfolders:
+            for filename in os.listdir(subfolder):
+                file_path = os.path.join(subfolder, filename)
+                if os.path.isfile(file_path):
+                    # Get the relative path from the source directory
+                    relative_path = os.path.relpath(subfolder, src_path)
+                    # Create a new file name with the relative path included
+                    new_filename = f"{relative_path.replace(os.sep, '_')}_{filename}"
+                    new_file_path = os.path.join(dst_path, new_filename)
+                    shutil.copy(file_path, new_file_path)
 
     def load(self, local_path, **kwargs):
         """Load your model from saved weights"""
@@ -91,6 +109,73 @@ class ModelAdapter(dl.BaseModelAdapter):
                 )
             batch_annotations.append(image_annotations)
         return batch_annotations
+
+    def convert_from_dtlpy(self, data_path, **kwargs):
+        ##############
+        # Validation #
+        ##############
+        # TODO : non of the models in shadi demo have subsets
+        subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
+        if subsets is None:
+            raise ValueError('Model metadata is missing "subsets". Cannot continue without subset definitions.')
+
+        for subset in ['train', 'validation', 'test']:
+            if subset not in subsets:
+                raise ValueError(
+                    f'Missing {subset} set. rf-detr requires train, validation and test sets for training. Add a {subset} set DQL filter in the dl.Model metadata'
+                )
+
+        if len(self.model_entity.labels) == 0:
+            raise ValueError('model.labels is empty. Model entity must have labels')
+
+        # TODO : learn how this code works ( add debug messages)
+        for subset, filters_dict in subsets.items():
+            filters = dl.Filters(custom_filter=filters_dict)
+            filters.add_join(field='type', values=['box'], operator=dl.FILTERS_OPERATIONS_IN)
+            filters.page_size = 0
+            pages = self.model_entity.dataset.items.list(filters=filters)
+            if pages.items_count == 0:
+                raise ValueError(
+                    f'Could find box annotations in subset {subset}. Cannot train without annotation in the data subsets'
+                )
+
+        self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
+
+        # start by converting dataloop format to coco format
+        for subset_name in subsets.keys():
+            dist_dir_name = subset_name if subset_name != 'validation' else 'valid'
+            # self.dtlpy_to_yolo(input_path=data_path, output_path=data_path, model_entity=self.model_entity)
+            input_annotations_path = os.path.join(data_path, subset_name, 'json')
+            output_annotations_path = os.path.join(data_path, dist_dir_name, '_annotations.coco.json')
+
+            converter = coco_converters.DataloopToCoco(
+                output_annotations_path=output_annotations_path,
+                input_annotations_path=input_annotations_path,
+                download_items=False,
+                download_annotations=False,
+                dataset=self.model_entity.dataset,
+                filters=dl.Filters(custom_filter=subsets[subset_name]),
+            )
+            coco_converter_services = services.converters_service.DataloopConverters()
+            loop = coco_converter_services._get_event_loop()
+            try:
+                loop.run_until_complete(converter.convert_dataset())
+            except Exception as e:
+                raise e
+
+            src_images_path = os.path.join(data_path, subset_name, 'items')
+            dst_images_path = os.path.join(data_path, dist_dir_name)
+            self.copy_files(src_images_path, dst_images_path)
+
+    def train(self, data_path, output_path, **kwargs):
+        # Load Configurations start with epochs=10, batch_size=4, grad_accum_steps=4, lr=1e-4
+        epochs = self.configuration.get('epochs', 10)
+        batch_size = self.configuration.get('batch_size', 4)
+        grad_accum_steps = self.configuration.get('grad_accum_steps', 4)
+        lr = self.configuration.get('lr', 1e-4)
+
+        # Determine Device
+        device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 if __name__ == '__main__':
