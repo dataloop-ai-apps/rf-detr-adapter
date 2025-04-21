@@ -21,7 +21,7 @@
                 "runtime": {
                     "podType": "regular-xs",
                     "concurrency": 1,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr:0.0.4",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.6",
                     "autoscaler": {
                         "type": "rabbitmq",
                         "minReplicas": 0,
@@ -35,7 +35,7 @@
                 "runtime": {
                     "podType": "gpu-t4",
                     "concurrency": 1,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr:0.0.4",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.6",
                     "autoscaler": {
                         "type": "rabbitmq",
                         "minReplicas": 0,
@@ -216,7 +216,12 @@
                     "weights_filename": "model.pth",
                     "batch_size": 4,
                     "confidence_threshold": 0.25
-                }
+                },
+                "scope": "project",
+                "status": "pre-trained",
+                "inputType": "image",
+                "outputType": "box",
+                "description": "TODO : add description"
             }
         ]
     }
