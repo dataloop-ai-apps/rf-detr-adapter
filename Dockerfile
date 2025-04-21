@@ -15,4 +15,5 @@ RUN pip install dtlpy
 
 RUN pip install --user git+https://github.com/roboflow/rf-detr.git
 
+RUN pip install --user git+https://github.com/dataloop-ai-apps/dtlpy-converters
     
