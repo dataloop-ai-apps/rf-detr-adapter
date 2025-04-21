@@ -1,0 +1,6 @@
+numpy==1.26.4
+torch==2.1.1
+torchvision==0.16.1
+torchaudio==2.1.1
+dtlpy
+git+https://github.com/roboflow/rf-detr.git 
