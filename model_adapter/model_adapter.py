@@ -63,7 +63,7 @@ class ModelAdapter(dl.BaseModelAdapter):
     def save(self, local_path: str, **kwargs) -> None:
         logger.info(f'Saving model to {local_path}')
         weights_filename = kwargs.get('weights_filename', 'model.pth')
-        torch.save(self.model, os.path.join(local_path, weights_filename))
+        torch.save(self.model.model.model, os.path.join(local_path, weights_filename))
         self.configuration['weights_filename'] = weights_filename
 
     def load(self, local_path: str, **kwargs) -> None:
@@ -85,12 +85,14 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.confidence_threshold = self.configuration.get('conf_thres', 0.25)
 
         # not sure if self.device is needed
-        # self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         logger.info(f'Loading model with confidence threshold: {self.confidence_threshold}')
-        self.model = RFDETRBase(pretrain_weights=model_filepath, device=device_name)
+        print("-HHH- model_filepath: ", model_filepath)
+        self.model = RFDETRBase(device=device_name)
+        self.model.model.model = torch.load(model_filepath, map_location=self.device, weights_only=False)
 
     # rf-dert is resize, normalize and convert to tensor in the model
     # nothing to do here
@@ -127,16 +129,18 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info(f'Converting dataset from Dataloop format at {data_path}')
 
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
-        if subsets is None:
-            logger.error("Model metadata is missing 'subsets'")
-            raise ValueError('Model metadata is missing "subsets". Cannot continue without subset definitions.')
+        print(f'-HHH- subsets: {subsets}')
 
-        for subset in ['train', 'validation', 'test']:
-            if subset not in subsets:
-                logger.error(f"Missing required subset: {subset}")
-                raise ValueError(
-                    f'Missing {subset} set. rf-detr requires train, validation and test sets for training. Add a {subset} set DQL filter in the dl.Model metadata'
-                )
+        # if subsets is None:
+        #     logger.error("Model metadata is missing 'subsets'")
+        #     raise ValueError('Model metadata is missing "subsets". Cannot continue without subset definitions.')
+
+        # for subset in ['train', 'validation', 'test']:
+        #     if subset not in subsets:
+        #         logger.error(f"Missing required subset: {subset}")
+        #         raise ValueError(
+        #             f'Missing {subset} set. rf-detr requires train, validation and test sets for training. Add a {subset} set DQL filter in the dl.Model metadata'
+        #         )
 
         if len(self.model_entity.labels) == 0:
             logger.error("Model has no labels defined")
@@ -161,7 +165,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             logger.info(f'Converting subset: {subset_name} to COCO format')
             dist_dir_name = subset_name if subset_name != 'validation' else 'valid'
             input_annotations_path = os.path.join(data_path, subset_name, 'json')
-            output_annotations_path = os.path.join(data_path, dist_dir_name, '_annotations.coco.json')
+            output_annotations_path = os.path.join(data_path, dist_dir_name)
 
             converter = coco_converters.DataloopToCoco(
                 output_annotations_path=output_annotations_path,
@@ -171,6 +175,14 @@ class ModelAdapter(dl.BaseModelAdapter):
                 dataset=self.model_entity.dataset,
                 filters=dl.Filters(custom_filter=subsets[subset_name]),
             )
+            # Rename COCO annotation file to match expected format
+
+            old_path = os.path.join(output_annotations_path, 'coco.json')
+            new_path = os.path.join(output_annotations_path, '_annotations.coco.json')
+            logger.debug(f'Renaming COCO annotation file from {old_path} to {new_path}')
+
+            if os.path.exists(old_path):
+                os.rename(old_path, new_path)
 
             coco_converter_services = services.converters_service.DataloopConverters()
             loop = coco_converter_services._get_event_loop()
@@ -216,19 +228,34 @@ if __name__ == '__main__':
     )
 
     project = dl.projects.get(project_name='ShadiDemo')
-    dataset = project.datasets.get(dataset_name='nvidia-husam-clone-updated-name')
+    # dataset = project.datasets.get(dataset_name='nvidia-husam-clone-updated-name')
 
-    model_id = '67fe3466f41fe3efebd2c433'
-    print('-HHH- get model')
-    model = project.models.get(model_id=model_id)
-    print('-HHH- create model adapter')
-    model_adapter = ModelAdapter(model)
-    predict_res = model_adapter.predict_items(
-        items=[
-            dataset.items.get(item_id='67ff9d8a18076275e55bd5ea'),
-            dataset.items.get(item_id='67fbfb21489a0f6f359ee478'),
-        ]
-    )
+    # model_id = '67fe3466f41fe3efebd2c433'
+    # print('-HHH- get model')
+    # model = project.models.get(model_id=model_id)
+    # print('-HHH- create model adapter')
+    # model_adapter = ModelAdapter(model)
+    # predict_res = model_adapter.predict_items(
+    #     items=[
+    #         dataset.items.get(item_id='67ff9d8a18076275e55bd5ea'),
+    #         dataset.items.get(item_id='67fbfb21489a0f6f359ee478'),
+    #     ]
+    # )
 
-    predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
-    print(f'-HHH- predict res: {predict_res}')
+    # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
+    # print(f'-HHH- predict res: {predict_res}')
+    model_name = 'rf-dert-tex4l'
+    model = project.models.get(model_name=model_name)
+    model.status = 'pre-trained'
+    model.update()
+    print(f'-HHH- create model adapter')
+    model_adapter = ModelAdapter(project.models.get(model_name=model_name))
+    print(f'-HHH- run train model')
+    model_adapter.train_model(model=model)
+    print(f'-HHH- train model completed')
+
+    # model_path = r'C:\Users\1Husam\.dataloop\models\rf-dert-tex4l\model.pth'
+
+    # print("-HHH- 249")
+    # model = RFDETRBase(pretrain_weights=model_path, device='cpu')
+    # print("-HHH- 251")
