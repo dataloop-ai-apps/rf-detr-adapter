@@ -1,6 +1,6 @@
 {
-    "name": "rf-dert",
-    "displayName": "RoboFlow DERT",
+    "name": "rf-detr",
+    "displayName": "RoboFlow DETR",
     "version": "6.2.0",
     "scope": "project",
     "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
@@ -48,7 +48,7 @@
         ],
         "modules": [
             {
-                "name": "rf-dert-module",
+                "name": "rf-detr-module",
                 "entryPoint": "model_adapter.py",
                 "className": "ModelAdapter",
                 "computeConfig": "inference-service",
@@ -210,8 +210,8 @@
         ],
         "models": [
             {
-                "name": "rf-dert",
-                "moduleName": "rf-dert-module",
+                "name": "rf-detr",
+                "moduleName": "rf-detr-module",
                 "configuration": {
                     "weights_filename": "model.pth",
                     "batch_size": 4,

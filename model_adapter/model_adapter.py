@@ -12,7 +12,7 @@ from dtlpyconverters import services, coco_converters
 from rfdetr import RFDETRBase
 from rfdetr.util.coco_classes import COCO_CLASSES
 
-logger = logging.getLogger('rf-dert-adapter')
+logger = logging.getLogger('rf-detr-adapter')
 
 
 class ModelAdapter(dl.BaseModelAdapter):
@@ -94,7 +94,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.model = RFDETRBase(device=device_name)
         self.model.model.model = torch.load(model_filepath, map_location=self.device, weights_only=False)
 
-    # rf-dert is resize, normalize and convert to tensor in the model
+    # rf-detr is resize, normalize and convert to tensor in the model
     # nothing to do here
     # def prepare_item_func(self, item):
     #     pass
@@ -244,7 +244,7 @@ if __name__ == '__main__':
 
     # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
     # print(f'-HHH- predict res: {predict_res}')
-    model_name = 'rf-dert-tex4l'
+    model_name = 'rf-detr-tex4l'
     model = project.models.get(model_name=model_name)
     model.status = 'pre-trained'
     model.update()
@@ -254,7 +254,7 @@ if __name__ == '__main__':
     model_adapter.train_model(model=model)
     print(f'-HHH- train model completed')
 
-    # model_path = r'C:\Users\1Husam\.dataloop\models\rf-dert-tex4l\model.pth'
+    # model_path = r'C:\Users\1Husam\.dataloop\models\rf-detr-tex4l\model.pth'
 
     # print("-HHH- 249")
     # model = RFDETRBase(pretrain_weights=model_path, device='cpu')
