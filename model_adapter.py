@@ -89,9 +89,9 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        logger.info(f'Loading model with confidence threshold: {self.confidence_threshold}')
-        print("-HHH- model_filepath: ", model_filepath)
+        logger.info(f'Loading model with confidence threshold: {self.confidence_threshold} , device: {device_name}')
         self.model = RFDETRBase(device=device_name)
+        logger.info(f'Loading model from {model_filepath}')
         self.model.model.model = torch.load(model_filepath, map_location=self.device, weights_only=False)
 
     # rf-detr is resize, normalize and convert to tensor in the model
