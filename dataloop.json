@@ -213,7 +213,7 @@
                 "name": "rf-detr",
                 "moduleName": "rf-detr-module",
                 "configuration": {
-                    "weights_filename": "model.pth",
+                    "weights_filename": "rf-detr-base-coco.pth",
                     "batch_size": 4,
                     "confidence_threshold": 0.25
                 },

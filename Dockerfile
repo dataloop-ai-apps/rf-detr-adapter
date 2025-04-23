@@ -2,6 +2,9 @@ FROM dataloopai/dtlpy-agent:gpu.cuda.11.8.py3.10.pytorch2
 
 USER 1000
 
+# Download weights
+RUN wget -O /tmp/app/weights/rf-detr-base-coco.pth https://storage.googleapis.com/rfdetr/rf-detr-base-coco.pth
+
 # Add this to solve this issue :
 # File "/tmp/.local/lib/python3.10/site-packages/transformers/utils/import_utils.py", line 1955, in __getattr__
 #   module = self._get_module(self._class_to_module[name])

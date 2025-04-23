@@ -1,10 +1,8 @@
 import logging
 import os
 import shutil
-from typing import Optional, List, Any
+from typing import List, Any
 import torch
-import numpy as np
-import requests
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
 
@@ -16,31 +14,6 @@ logger = logging.getLogger('rf-detr-adapter')
 
 
 class ModelAdapter(dl.BaseModelAdapter):
-
-    @staticmethod
-    def _download_weights(url: str) -> Optional[str]:
-        if url is None:
-            logger.warning("No URL provided for weights download")
-            return None
-        try:
-            logger.info(f'Downloading weights from: {url}')
-            response = requests.get(url, stream=True, timeout=30)
-            response.raise_for_status()
-
-            # Create temp file with .pth extension in weights dir
-            model_filepath = os.path.join('/tmp/app/weights', f'model_{np.random.randint(0, 1000000)}.pth')
-
-            with open(model_filepath, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-
-            logger.info(f'Weights downloaded to: {model_filepath}')
-            return model_filepath
-
-        except (requests.exceptions.RequestException, IOError) as e:
-            logger.error(f"Error downloading weights: {str(e)}")
-            return None
 
     @staticmethod
     def _copy_files(src_path: str, dst_path: str) -> None:
@@ -61,38 +34,33 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info('File copy completed')
 
     def save(self, local_path: str, **kwargs) -> None:
-        logger.info(f'Saving model to {local_path}')
-        weights_filename = kwargs.get('weights_filename', 'model.pth')
-        torch.save(self.model.model.model, os.path.join(local_path, weights_filename))
-        self.configuration['weights_filename'] = weights_filename
+        self.configuration.update({'weights_filename': 'weights/best.pth'})
 
     def load(self, local_path: str, **kwargs) -> None:
         """Load your model from saved weights"""
         logger.info(f'Loading model from {local_path}')
-        model_filename = self.configuration.get('weights_filename', 'model.pth')
-        model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
 
-        if not os.path.isfile(model_filepath):
-            tmp_dir = '/tmp/app/weights'
-            temp_model_path = os.path.join(tmp_dir, model_filename)
-            if os.path.isfile(temp_model_path):
-                model_filepath = temp_model_path
-            else:
-                url = self.configuration.get('weights_url')
-                # Download file to temporary location
-                model_filepath = ModelAdapter._download_weights(url)
+        model_filename = self.configuration.get('weights_filename', 'rf-detr-base-coco.pth')
+        model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
+        default_weights = os.path.join('/tmp/app/weights', model_filename)
+
+        # when weights_path is None, the model will be loaded from the default weights
+        weights_path = None
+        if os.path.isfile(model_filepath):
+            weights_path = model_filepath
+        elif os.path.isfile(default_weights):
+            weights_path = default_weights
 
         self.confidence_threshold = self.configuration.get('conf_thres', 0.25)
 
-        # not sure if self.device is needed
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        logger.info(f'Loading model with confidence threshold: {self.confidence_threshold} , device: {device_name}')
-        self.model = RFDETRBase(device=device_name)
-        logger.info(f'Loading model from {model_filepath}')
-        self.model.model.model = torch.load(model_filepath, map_location=self.device, weights_only=False)
+        logger.info(
+            f'Loading model with weights: {weights_path}, '
+            f'confidence threshold: {self.confidence_threshold}, '
+            f'device: {device_name}'
+        )
+        self.model = RFDETRBase(pretrain_weights=weights_path, device=device_name)
 
     # rf-detr is resize, normalize and convert to tensor in the model
     # nothing to do here
