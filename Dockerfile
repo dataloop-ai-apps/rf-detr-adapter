@@ -27,4 +27,7 @@ RUN pip install dtlpy
 RUN pip install --user git+https://github.com/roboflow/rf-detr.git
 
 RUN pip install --user git+https://github.com/dataloop-ai-apps/dtlpy-converters
-    
+
+# A module that was compiled using NumPy 1.x cannot be run in
+# NumPy 2.1.2 as it may crash. To support both 1.x and 2.x
+RUN pip install numpy==1.26.4
