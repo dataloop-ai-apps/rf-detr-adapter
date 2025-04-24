@@ -6,7 +6,6 @@ import torch
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
 
-
 from rfdetr import RFDETRBase
 from rfdetr.util.coco_classes import COCO_CLASSES
 
@@ -143,14 +142,6 @@ class ModelAdapter(dl.BaseModelAdapter):
                 dataset=self.model_entity.dataset,
                 filters=dl.Filters(custom_filter=subsets[subset_name]),
             )
-            # Rename COCO annotation file to match expected format
-
-            old_path = os.path.join(output_annotations_path, 'coco.json')
-            new_path = os.path.join(output_annotations_path, '_annotations.coco.json')
-            logger.debug(f'Renaming COCO annotation file from {old_path} to {new_path}')
-
-            if os.path.exists(old_path):
-                os.rename(old_path, new_path)
 
             coco_converter_services = services.converters_service.DataloopConverters()
             loop = coco_converter_services._get_event_loop()
@@ -159,6 +150,16 @@ class ModelAdapter(dl.BaseModelAdapter):
             except Exception as e:
                 logger.error(f"Error converting subset {subset_name}: {str(e)}")
                 raise
+
+                # Rename COCO annotation file to match expected format
+            old_path = os.path.join(output_annotations_path, 'coco.json')
+            new_path = os.path.join(output_annotations_path, '_annotations.coco.json')
+            logger.debug(f'Renaming COCO annotation file from {old_path} to {new_path}')
+
+            if os.path.exists(old_path):
+                if os.path.exists(new_path):
+                    os.remove(new_path)
+                os.rename(old_path, new_path)
 
             src_images_path = os.path.join(data_path, subset_name, 'items')
             dst_images_path = os.path.join(data_path, dist_dir_name)
@@ -212,7 +213,7 @@ if __name__ == '__main__':
 
     # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
     # print(f'-HHH- predict res: {predict_res}')
-    model_name = 'rf-detr-tex4l'
+    model_name = 'rd-dert-animals-sdk'
     model = project.models.get(model_name=model_name)
     model.status = 'pre-trained'
     model.update()
