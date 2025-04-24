@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import shutil
@@ -19,18 +20,47 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info(f'Copying files from {src_path} to {dst_path}')
         subfolders = [x[0] for x in os.walk(src_path)]
         os.makedirs(dst_path, exist_ok=True)
-
         for subfolder in subfolders:
+            subfolder_path = os.path.join(dst_path, os.path.basename(subfolder))
+            os.makedirs(subfolder_path, exist_ok=True)
             for filename in os.listdir(subfolder):
                 file_path = os.path.join(subfolder, filename)
                 if os.path.isfile(file_path):
-                    # Get the relative path from the source directory
-                    relative_path = os.path.relpath(subfolder, src_path)
-                    # Create a new file name with the relative path included
-                    new_filename = f"{relative_path.replace(os.sep, '_')}_{filename}"
-                    new_file_path = os.path.join(dst_path, new_filename)
+                    new_file_path = os.path.join(subfolder_path, filename)
                     shutil.copy(file_path, new_file_path)
         logger.info('File copy completed')
+
+    @staticmethod
+    def _process_coco_json(output_annotations_path: str) -> None:
+        src_json_path = os.path.join(output_annotations_path, 'coco.json')
+        dest_json_path = os.path.join(output_annotations_path, '_annotations.coco.json')
+
+        logger.info(f'Processing COCO JSON file at {src_json_path}')
+        # Load the JSON file
+        with open(src_json_path, 'r') as f:
+            coco_data = json.load(f)
+
+        # Add supercategory field to each category if it doesn't exist
+        for category in coco_data.get('categories', []):
+            if 'supercategory' not in category:
+                category['supercategory'] = 'none'
+
+        # Convert image IDs to integers
+        for image in coco_data.get('images', []):
+            if isinstance(image['id'], str):
+                image['id'] = abs(hash(image['id']))
+
+        # Convert annotation IDs and image_ids to integers
+        for annotation in coco_data.get('annotations', []):
+            if isinstance(annotation['id'], str):
+                annotation['id'] = abs(hash(annotation['id']))
+            if isinstance(annotation['image_id'], str):
+                annotation['image_id'] = abs(hash(annotation['image_id']))
+
+        with open(dest_json_path, 'w') as f:
+            json.dump(coco_data, f, indent=2)
+
+        logger.info('COCO JSON processing completed')
 
     def save(self, local_path: str, **kwargs) -> None:
         self.configuration.update({'weights_filename': 'weights/best.pth'})
@@ -151,15 +181,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 logger.error(f"Error converting subset {subset_name}: {str(e)}")
                 raise
 
-                # Rename COCO annotation file to match expected format
-            old_path = os.path.join(output_annotations_path, 'coco.json')
-            new_path = os.path.join(output_annotations_path, '_annotations.coco.json')
-            logger.debug(f'Renaming COCO annotation file from {old_path} to {new_path}')
-
-            if os.path.exists(old_path):
-                if os.path.exists(new_path):
-                    os.remove(new_path)
-                os.rename(old_path, new_path)
+            self._process_coco_json(output_annotations_path)
 
             src_images_path = os.path.join(data_path, subset_name, 'items')
             dst_images_path = os.path.join(data_path, dist_dir_name)
