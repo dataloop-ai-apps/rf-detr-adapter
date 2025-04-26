@@ -70,7 +70,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info(f'Loading model from {local_path}')
 
         model_filename = self.configuration.get('weights_filename', 'rf-detr-base-coco.pth')
+        logger.info(f'-HHH- model_filename: {model_filename}')
         model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
+        logger.info(f'-HHH- model_filepath: {model_filepath}')
         default_weights = os.path.join('/tmp/app/weights', model_filename)
 
         # when weights_path is None, the model will be loaded from the default weights
@@ -80,16 +82,28 @@ class ModelAdapter(dl.BaseModelAdapter):
         elif os.path.isfile(default_weights):
             weights_path = default_weights
 
+        logger.info(f'-HHH- weights_path: {weights_path}')
         self.confidence_threshold = self.configuration.get('conf_thres', 0.25)
 
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+        # Get the number of classes from the model entity
+        num_classes = len(self.model_entity.labels)
+        logger.info(f'Number of classes in dataset: {num_classes}')
+
         logger.info(
             f'Loading model with weights: {weights_path}, '
             f'confidence threshold: {self.confidence_threshold}, '
-            f'device: {device_name}'
+            f'device: {device_name}, '
+            f'num_classes: {num_classes}'
         )
-        self.model = RFDETRBase(pretrain_weights=weights_path, device=device_name)
+
+        self.model = RFDETRBase(
+            pretrain_weights=weights_path,
+            device=device_name,
+            num_classes=num_classes,  # Pass the correct number of classes
+        )
+        logger.info(f'-HHH- model created')
 
     # rf-detr is resize, normalize and convert to tensor in the model
     # nothing to do here
@@ -128,17 +142,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
         print(f'-HHH- subsets: {subsets}')
 
-        # if subsets is None:
-        #     logger.error("Model metadata is missing 'subsets'")
-        #     raise ValueError('Model metadata is missing "subsets". Cannot continue without subset definitions.')
-
-        # for subset in ['train', 'validation', 'test']:
-        #     if subset not in subsets:
-        #         logger.error(f"Missing required subset: {subset}")
-        #         raise ValueError(
-        #             f'Missing {subset} set. rf-detr requires train, validation and test sets for training. Add a {subset} set DQL filter in the dl.Model metadata'
-        #         )
-
         if len(self.model_entity.labels) == 0:
             logger.error("Model has no labels defined")
             raise ValueError('model.labels is empty. Model entity must have labels')
@@ -155,7 +158,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 raise ValueError(
                     f'Could not find box annotations in subset {subset}. Cannot train without annotations in the data subsets'
                 )
-
+        # TODO: check if that is needed
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
         for subset_name in subsets.keys():
@@ -189,14 +192,15 @@ class ModelAdapter(dl.BaseModelAdapter):
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         logger.info(f'Starting training with data from {data_path}')
-
+        print(f"-HHH- data_path: {data_path}")
         epochs = self.configuration.get('epochs', 10)
         batch_size = self.configuration.get('batch_size', 4)
         grad_accum_steps = self.configuration.get('grad_accum_steps', 4)
         lr = self.configuration.get('lr', 1e-4)
+        device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
         logger.info(f'Training configuration: epochs={epochs}, batch_size={batch_size}, lr={lr}')
-
+        print("-HHH_ class_names", self.model_entity.labels)
         self.model.train(
             dataset_dir=data_path,
             epochs=epochs,
@@ -204,6 +208,11 @@ class ModelAdapter(dl.BaseModelAdapter):
             grad_accum_steps=grad_accum_steps,
             lr=lr,
             output_dir=output_path,
+            device=device_name,
+            class_names=self.model_entity.labels,
+            fp16_eval=False,
+            amp=False,
+            dtype=torch.float16,  # Use float16 for training
         )
 
         logger.info('Training completed')
