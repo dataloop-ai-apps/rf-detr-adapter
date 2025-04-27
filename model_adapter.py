@@ -1,4 +1,5 @@
 import json
+import sys
 import logging
 import os
 import shutil
@@ -18,16 +19,16 @@ class ModelAdapter(dl.BaseModelAdapter):
     @staticmethod
     def _copy_files(src_path: str, dst_path: str) -> None:
         logger.info(f'Copying files from {src_path} to {dst_path}')
-        subfolders = [x[0] for x in os.walk(src_path)]
+        print(f'-HHH- src_path: {src_path}')
+        print(f'-HHH- dst_path: {dst_path}')
         os.makedirs(dst_path, exist_ok=True)
-        for subfolder in subfolders:
-            subfolder_path = os.path.join(dst_path, os.path.basename(subfolder))
-            os.makedirs(subfolder_path, exist_ok=True)
-            for filename in os.listdir(subfolder):
-                file_path = os.path.join(subfolder, filename)
-                if os.path.isfile(file_path):
-                    new_file_path = os.path.join(subfolder_path, filename)
-                    shutil.copy(file_path, new_file_path)
+        for filename in os.listdir(src_path):
+            file_path = os.path.join(src_path, filename)
+            print(f'-HHH- file_path: {file_path}')
+            if os.path.isfile(file_path):
+                new_file_path = os.path.join(dst_path, filename)
+                print(f'-HHH- new_file_path: {new_file_path}')
+                shutil.copy(file_path, new_file_path)
         logger.info('File copy completed')
 
     @staticmethod
@@ -45,10 +46,13 @@ class ModelAdapter(dl.BaseModelAdapter):
             if 'supercategory' not in category:
                 category['supercategory'] = 'none'
 
-        # Convert image IDs to integers
+        # Convert image IDs to integers and clean file names
         for image in coco_data.get('images', []):
             if isinstance(image['id'], str):
                 image['id'] = abs(hash(image['id']))
+            # Remove parent directory from file_name
+            if '/' in image['file_name']:
+                image['file_name'] = os.path.basename(image['file_name'])
 
         # Convert annotation IDs and image_ids to integers
         for annotation in coco_data.get('annotations', []):
@@ -158,6 +162,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 raise ValueError(
                     f'Could not find box annotations in subset {subset}. Cannot train without annotations in the data subsets'
                 )
+
         # TODO: check if that is needed
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
@@ -186,21 +191,49 @@ class ModelAdapter(dl.BaseModelAdapter):
 
             self._process_coco_json(output_annotations_path)
 
-            src_images_path = os.path.join(data_path, subset_name, 'items')
+            src_images_path = os.path.join(data_path, subset_name, 'items', subset_name)
             dst_images_path = os.path.join(data_path, dist_dir_name)
             self._copy_files(src_images_path, dst_images_path)
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         logger.info(f'Starting training with data from {data_path}')
-        print(f"-HHH- data_path: {data_path}")
+
+        logger.info(f'-HHH- ver 27-apr data_path: {data_path}')
+        print(f"-HHH- ver 27-apr data_path: {data_path}")
         epochs = self.configuration.get('epochs', 10)
         batch_size = self.configuration.get('batch_size', 4)
         grad_accum_steps = self.configuration.get('grad_accum_steps', 4)
         lr = self.configuration.get('lr', 1e-4)
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        logger.info(f'Training configuration: epochs={epochs}, batch_size={batch_size}, lr={lr}')
+        logger.info(
+            f'Training configuration: epochs={epochs}, batch_size={batch_size}, lr={lr} , device_name={device_name}'
+        )
         print("-HHH_ class_names", self.model_entity.labels)
+        ##################### remove this ############################
+        print("-HHH- 209 set batch size and grad accum steps to 1 for cpu")
+        if device_name == 'cpu':
+            batch_size = 1
+            grad_accum_steps = 1
+        ##################### remove this ############################
+        # Print directory structure of data_path up to 3 levels
+        logger.info(f"-HHH- Printing directory structure of {data_path} (up to 3 levels):")
+        print(f"-HHH- Directory structure of {data_path}:")
+        for root, dirs, files in os.walk(data_path, topdown=True):
+            level = root.replace(data_path, '').count(os.sep)
+            if level <= 3:
+                indent = '  ' * level
+                logger.info(f"{indent}{os.path.basename(root)}/")
+                print(f"-HHH- {indent}{os.path.basename(root)}/")
+                if files:
+                    subindent = '  ' * (level + 1)
+                    for f in files:
+                        logger.info(f"{subindent}{f}")
+                        print(f"-HHH- {subindent}{f}")
+
+        # Flush stdout to ensure all logs are captured
+        sys.stdout.flush()
+
         self.model.train(
             dataset_dir=data_path,
             epochs=epochs,
@@ -215,6 +248,31 @@ class ModelAdapter(dl.BaseModelAdapter):
             dtype=torch.float16,  # Use float16 for training
         )
 
+        # if device_name == 'cpu':
+        #     self.model.train(
+        #         dataset_dir=data_path,
+        #         epochs=epochs,
+        #         batch_size=batch_size,
+        #         grad_accum_steps=grad_accum_steps,
+        #         lr=lr,
+        #         output_dir=output_path,
+        #         device=device_name,
+        #         class_names=self.model_entity.labels,
+        #         fp16_eval=False,
+        #         amp=False,
+        #         dtype=torch.float16,  # Use float16 for training
+        #     )
+        # else:
+        #     self.model.train(
+        #         dataset_dir=data_path,
+        #         epochs=epochs,
+        #         batch_size=batch_size,
+        #         grad_accum_steps=grad_accum_steps,
+        #         lr=lr,
+        #         output_dir=output_path,
+        #         device=device_name,
+        #         class_names=self.model_entity.labels,
+        #     )
         logger.info('Training completed')
 
 
@@ -244,7 +302,7 @@ if __name__ == '__main__':
 
     # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
     # print(f'-HHH- predict res: {predict_res}')
-    model_name = 'rd-dert-animals-sdk'
+    model_name = 'rf-detr-clone-2604'
     model = project.models.get(model_name=model_name)
     model.status = 'pre-trained'
     model.update()
