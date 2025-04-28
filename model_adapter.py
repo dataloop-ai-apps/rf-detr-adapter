@@ -5,6 +5,7 @@ import os
 import glob
 import shutil
 from typing import List, Any
+import numpy as np
 import torch
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
@@ -66,6 +67,34 @@ class ModelAdapter(dl.BaseModelAdapter):
             json.dump(coco_data, f, indent=2)
 
         logger.info('COCO JSON processing completed')
+
+    @staticmethod
+    def _extract_yolo_like_metrics(rf_detr_metrics: dict) -> dict:
+        result = {}
+
+        # box_loss = bbox + giou
+        bbox_loss = rf_detr_metrics.get("train_loss_bbox")
+        giou_loss = rf_detr_metrics.get("train_loss_giou")
+        if bbox_loss is not None and giou_loss is not None:
+            result["box_loss"] = bbox_loss + giou_loss
+
+        # cls_loss
+        cls_loss = rf_detr_metrics.get("train_loss_ce")
+        if cls_loss is not None:
+            result["cls_loss"] = cls_loss
+
+        # coco eval bbox metrics (ema)
+        coco_eval = rf_detr_metrics.get("ema_test_coco_eval_bbox")
+        if coco_eval and isinstance(coco_eval, list) and len(coco_eval) >= 9:
+            result["mAP50-95(B)"] = coco_eval[0]  # AP@[.50:.95]
+            result["mAP50(B)"] = coco_eval[1]  # AP@.50
+            result["recall(B)"] = coco_eval[8]  # AR@100
+        else:
+            result["mAP50-95(B)"] = None
+            result["mAP50(B)"] = None
+            result["recall(B)"] = None
+
+        return result
 
     def save(self, local_path: str, **kwargs) -> None:
         self.configuration.update({'weights_filename': 'weights/best.pth'})
@@ -190,11 +219,11 @@ class ModelAdapter(dl.BaseModelAdapter):
                 logger.error(f"Error converting subset {subset_name}: {str(e)}")
                 raise
 
-            self._process_coco_json(output_annotations_path)
+            ModelAdapter._process_coco_json(output_annotations_path)
 
             src_images_path = os.path.join(data_path, subset_name, 'items', subset_name)
             dst_images_path = os.path.join(data_path, dist_dir_name)
-            self._copy_files(src_images_path, dst_images_path)
+            ModelAdapter._copy_files(src_images_path, dst_images_path)
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         logger.info(f'Starting training with data from {data_path}')
@@ -244,11 +273,44 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         # Flush stdout to ensure all logs are captured
         sys.stdout.flush()
+        faas_callback = kwargs.get('on_epoch_end_callback')
 
         def on_epoch_end(data):
             # get last epoch checkpoint
             self.current_epoch = data['epoch']
             self.configuration['start_epoch'] = self.current_epoch + 1
+            if faas_callback is not None:
+                faas_callback(self.current_epoch, epochs)
+            samples = list()
+            NaN_dict = {
+                'box_loss': 1,
+                'cls_loss': 1,
+                'dfl_loss': 1,
+                'mAP50(B)': 0,
+                'mAP50-95(B)': 0,
+                'precision(B)': 0,
+                'recall(B)': 0,
+            }
+
+            yolo_metrics = ModelAdapter._extract_yolo_like_metrics(data)
+            for metric_name, value in yolo_metrics.items():
+                if not np.isfinite(value):
+                    filters = dl.Filters(resource=dl.FiltersResource.METRICS)
+                    filters.add(field='modelId', values=self.model_entity.id)
+                    filters.add(field='figure', values=metric_name)
+                    filters.add(field='data.x', values=self.current_epoch - 1)
+                    items = self.model_entity.metrics.list(filters=filters)
+
+                    if items.items_count > 0:
+                        value = items.items[0].y
+                    else:
+                        value = NaN_dict.get(metric_name, 0)
+                    logger.warning(
+                        f'Value is not finite. For figure {metric_name} and legend metrics using value {value}'
+                    )
+                samples.append(dl.PlotSample(figure=metric_name, legend='matrics', x=self.current_epoch, y=value))
+            self.model_entity.metrics.create(samples=samples, dataset_id=self.model_entity.dataset_id)
+
             # TODO : check if that is needed ?
             self.save_to_model(local_path=output_path, cleanup=False)
 
