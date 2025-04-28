@@ -1,7 +1,7 @@
 {
     "name": "rf-detr",
     "displayName": "RoboFlow DETR",
-    "version": "1.0.0",
+    "version": "1.0.16",
     "scope": "project",
     "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
     "attributes": {
@@ -21,7 +21,7 @@
                 "runtime": {
                     "podType": "regular-xs",
                     "concurrency": 1,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.6",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.7",
                     "autoscaler": {
                         "type": "rabbitmq",
                         "minReplicas": 0,
@@ -35,7 +35,7 @@
                 "runtime": {
                     "podType": "gpu-t4",
                     "concurrency": 1,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.6",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.7",
                     "autoscaler": {
                         "type": "rabbitmq",
                         "minReplicas": 0,
@@ -51,7 +51,7 @@
                 "name": "rf-detr-module",
                 "entryPoint": "model_adapter.py",
                 "className": "ModelAdapter",
-                "computeConfig": "inference-service",
+                "computeConfig": "rf-detr-deploy",
                 "description": "RF-DETR is a real-time, transformer-based object detection model architecture developed by Roboflow",
                 "initInputs": [
                     {
@@ -160,50 +160,6 @@
                         "displayName": "Predict Dataset",
                         "displayIcon": "",
                         "description": "Function to run rf-detr inference on a dataset"
-                    },
-                    {
-                        "name": "embed_items",
-                        "input": [
-                            {
-                                "type": "Item[]",
-                                "name": "items",
-                                "description": "The input items for embeddings."
-                            }
-                        ],
-                        "output": [
-                            {
-                                "type": "Item[]",
-                                "name": "items",
-                                "description": "The same input items for embeddings."
-                            },
-                            {
-                                "type": "Json",
-                                "name": "json",
-                                "description": "Embeddings of items."
-                            }
-                        ],
-                        "displayName": "Embed Items",
-                        "displayIcon": "icon-dl-embeddings",
-                        "description": "Extract features function of the model for a list of items."
-                    },
-                    {
-                        "name": "embed_dataset",
-                        "input": [
-                            {
-                                "type": "Dataset",
-                                "name": "dataset",
-                                "description": "The input dataset of the items required for embedding."
-                            },
-                            {
-                                "type": "Json",
-                                "name": "filters",
-                                "description": "The DQL in json format to get all the items required for embedding."
-                            }
-                        ],
-                        "output": [],
-                        "displayName": "Embed Dataset",
-                        "displayIcon": "icon-dl-embeddings",
-                        "description": "Extract features function of the model for a dataset."
                     }
                 ]
             }
