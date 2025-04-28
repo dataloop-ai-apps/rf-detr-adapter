@@ -72,29 +72,63 @@ class ModelAdapter(dl.BaseModelAdapter):
     def _extract_yolo_like_metrics(rf_detr_metrics: dict) -> dict:
         result = {}
 
-        # box_loss = bbox + giou
+        # Calculate box_loss: sum of bbox regression loss and GIoU loss
         bbox_loss = rf_detr_metrics.get("train_loss_bbox")
         giou_loss = rf_detr_metrics.get("train_loss_giou")
         if bbox_loss is not None and giou_loss is not None:
             result["box_loss"] = bbox_loss + giou_loss
 
-        # cls_loss
+        # Classification loss (cls_loss): directly mapped from train_loss_ce
         cls_loss = rf_detr_metrics.get("train_loss_ce")
         if cls_loss is not None:
             result["cls_loss"] = cls_loss
 
-        # coco eval bbox metrics (ema)
+        # Extract COCO evaluation metrics (from ema_test_coco_eval_bbox)
+        # COCO eval returns a list of metrics:
+        # [0] AP@[.50:.95] (mean Average Precision across IoU thresholds)
+        # [1] AP@0.50 (average precision at IoU=0.5)
+        # [8] AR@100 (average recall with 100 detections per image)
         coco_eval = rf_detr_metrics.get("ema_test_coco_eval_bbox")
         if coco_eval and isinstance(coco_eval, list) and len(coco_eval) >= 9:
-            result["mAP50-95(B)"] = coco_eval[0]  # AP@[.50:.95]
-            result["mAP50(B)"] = coco_eval[1]  # AP@.50
-            result["recall(B)"] = coco_eval[8]  # AR@100
+            result["mAP50-95(B)"] = coco_eval[0]  # COCO's AP@[.50:.95], matches YOLO's mAP50-95(B)
+            result["mAP50(B)"] = coco_eval[1]  # COCO's AP@0.50, matches YOLO's mAP50(B)
+            result["recall(B)"] = coco_eval[8]  # COCO's AR@100, used as recall(B) proxy
         else:
+            # If COCO metrics are missing or incomplete, fill with None
             result["mAP50-95(B)"] = None
             result["mAP50(B)"] = None
             result["recall(B)"] = None
 
         return result
+
+    def on_epoch_end(self, data, faas_callback=None):
+        # get last epoch checkpoint
+        self.current_epoch = data['epoch']
+        if faas_callback is not None:
+            faas_callback(self.current_epoch, self.configuration.get('epochs', 10))
+        samples = list()
+        NaN_dict = {'box_loss': 1, 'cls_loss': 1, 'mAP50(B)': 0, 'mAP50-95(B)': 0, 'recall(B)': 0}
+
+        yolo_metrics = ModelAdapter._extract_yolo_like_metrics(data)
+        for metric_name, value in yolo_metrics.items():
+            if not np.isfinite(value):
+                filters = dl.Filters(resource=dl.FiltersResource.METRICS)
+                filters.add(field='modelId', values=self.model_entity.id)
+                filters.add(field='figure', values=metric_name)
+                filters.add(field='data.x', values=self.current_epoch - 1)
+                items = self.model_entity.metrics.list(filters=filters)
+
+                if items.items_count > 0:
+                    value = items.items[0].y
+                else:
+                    value = NaN_dict.get(metric_name, 0)
+                logger.warning(f'Value is not finite. For figure {metric_name} and legend metrics using value {value}')
+            samples.append(dl.PlotSample(figure=metric_name, legend='matrics', x=self.current_epoch, y=value))
+        self.model_entity.metrics.create(samples=samples, dataset_id=self.model_entity.dataset_id)
+
+        self.configuration['start_epoch'] = self.current_epoch + 1
+        # TODO : check if that is needed ? since i see its already called in BaseModelAdapter
+        # self.save_to_model(local_path=self.configuration.get('output_path', ''), cleanup=False)
 
     def save(self, local_path: str, **kwargs) -> None:
         self.configuration.update({'weights_filename': 'weights/best.pth'})
@@ -247,13 +281,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info(
             f'Training configuration: epochs={epochs}, batch_size={batch_size}, lr={lr} , device_name={device_name}'
         )
-        print("-HHH_ class_names", self.model_entity.labels)
-        ##################### remove this ############################
-        print("-HHH- 209 set batch size and grad accum steps to 1 for cpu")
-        if device_name == 'cpu':
-            batch_size = 1
-            grad_accum_steps = 1
-        ##################### remove this ############################
+
         # Print directory structure of data_path up to 3 levels
         debug_msg = [f"-HHH- Printing directory structure of {data_path} (up to 3 levels):"]
         debug_msg.append(f"-HHH- Directory structure of {data_path}:")
@@ -275,46 +303,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         sys.stdout.flush()
         faas_callback = kwargs.get('on_epoch_end_callback')
 
-        def on_epoch_end(data):
-            # get last epoch checkpoint
-            self.current_epoch = data['epoch']
-            self.configuration['start_epoch'] = self.current_epoch + 1
-            if faas_callback is not None:
-                faas_callback(self.current_epoch, epochs)
-            samples = list()
-            NaN_dict = {
-                'box_loss': 1,
-                'cls_loss': 1,
-                'dfl_loss': 1,
-                'mAP50(B)': 0,
-                'mAP50-95(B)': 0,
-                'precision(B)': 0,
-                'recall(B)': 0,
-            }
+        ##################################### TODO remove this #####################################
+        epochs = 1
+        ##################################### TODO remove this #####################################
 
-            yolo_metrics = ModelAdapter._extract_yolo_like_metrics(data)
-            for metric_name, value in yolo_metrics.items():
-                if not np.isfinite(value):
-                    filters = dl.Filters(resource=dl.FiltersResource.METRICS)
-                    filters.add(field='modelId', values=self.model_entity.id)
-                    filters.add(field='figure', values=metric_name)
-                    filters.add(field='data.x', values=self.current_epoch - 1)
-                    items = self.model_entity.metrics.list(filters=filters)
-
-                    if items.items_count > 0:
-                        value = items.items[0].y
-                    else:
-                        value = NaN_dict.get(metric_name, 0)
-                    logger.warning(
-                        f'Value is not finite. For figure {metric_name} and legend metrics using value {value}'
-                    )
-                samples.append(dl.PlotSample(figure=metric_name, legend='matrics', x=self.current_epoch, y=value))
-            self.model_entity.metrics.create(samples=samples, dataset_id=self.model_entity.dataset_id)
-
-            # TODO : check if that is needed ?
-            self.save_to_model(local_path=output_path, cleanup=False)
-
-        self.model.callbacks["on_fit_epoch_end"].append(on_epoch_end)
+        self.model.callbacks["on_fit_epoch_end"].append(lambda data: self.on_epoch_end(data, faas_callback))
         self.model.train(
             dataset_dir=data_path,
             epochs=epochs,
@@ -332,36 +325,28 @@ class ModelAdapter(dl.BaseModelAdapter):
             dtype=torch.float16,
         )
 
+        # Print directory structure of data_path up to 3 levels
+        debug_msg = [f"-HHH- Printing directory structure of {output_path} (up to 3 levels):"]
+        debug_msg.append(f"-HHH- Directory structure of {output_path}:")
+        for root, dirs, files in os.walk(output_path, topdown=True):
+            level = root.replace(output_path, '').count(os.sep)
+            if level <= 3:
+                indent = '  ' * level
+                debug_msg.append(f"{indent}{os.path.basename(root)}/")
+                if files:
+                    subindent = '  ' * (level + 1)
+                    for f in files:
+                        debug_msg.append(f"{subindent}{f}")
+
+        debug_output = '\n'.join(debug_msg)
+        logger.info(debug_output)
+        print(debug_output)
+
         #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
         if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == epochs:
             self.model_entity.configuration['start_epoch'] = 0
             self.model_entity.update()
 
-        # if device_name == 'cpu':
-        #     self.model.train(
-        #         dataset_dir=data_path,
-        #         epochs=epochs,
-        #         batch_size=batch_size,
-        #         grad_accum_steps=grad_accum_steps,
-        #         lr=lr,
-        #         output_dir=output_path,
-        #         device=device_name,
-        #         class_names=self.model_entity.labels,
-        #         fp16_eval=False,
-        #         amp=False,
-        #         dtype=torch.float16,  # Use float16 for training
-        #     )
-        # else:
-        #     self.model.train(
-        #         dataset_dir=data_path,
-        #         epochs=epochs,
-        #         batch_size=batch_size,
-        #         grad_accum_steps=grad_accum_steps,
-        #         lr=lr,
-        #         output_dir=output_path,
-        #         device=device_name,
-        #         class_names=self.model_entity.labels,
-        #     )
         logger.info('Training completed')
 
 
