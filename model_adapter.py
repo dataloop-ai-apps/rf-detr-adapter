@@ -198,8 +198,8 @@ class ModelAdapter(dl.BaseModelAdapter):
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         logger.info(f'Starting training with data from {data_path}')
 
-        logger.info(f'-HHH- ver 28-apr data_path: {data_path}')
-        print(f"-HHH- ver 28-apr data_path: {data_path}")
+        logger.info(f'-HHH- ver 28-apr 2 data_path: {data_path}')
+        print(f"-HHH- ver 28-apr 2data_path: {data_path}")
         epochs = self.configuration.get('epochs', 10)
         batch_size = self.configuration.get('batch_size', 4)
         grad_accum_steps = self.configuration.get('grad_accum_steps', 4)
@@ -250,6 +250,11 @@ class ModelAdapter(dl.BaseModelAdapter):
             output_dir=output_path,
             device=device_name,
             num_workers=0,
+            # train crashed on : RuntimeError: Current CUDA Device does not support bfloat16. Please switch dtype to float16.
+            # TODO check if that is best way to handle this
+            fp16_eval=False,
+            amp=False,
+            dtype=torch.float16,
         )
 
         # if device_name == 'cpu':
