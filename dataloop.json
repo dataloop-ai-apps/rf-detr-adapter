@@ -1,7 +1,7 @@
 {
     "name": "rf-detr",
     "displayName": "RoboFlow DETR",
-    "version": "1.0.16",
+    "version": "1.0.18",
     "scope": "project",
     "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
     "attributes": {

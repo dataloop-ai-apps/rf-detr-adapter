@@ -198,8 +198,8 @@ class ModelAdapter(dl.BaseModelAdapter):
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         logger.info(f'Starting training with data from {data_path}')
 
-        logger.info(f'-HHH- ver 27-apr data_path: {data_path}')
-        print(f"-HHH- ver 27-apr data_path: {data_path}")
+        logger.info(f'-HHH- ver 28-apr data_path: {data_path}')
+        print(f"-HHH- ver 28-apr data_path: {data_path}")
         epochs = self.configuration.get('epochs', 10)
         batch_size = self.configuration.get('batch_size', 4)
         grad_accum_steps = self.configuration.get('grad_accum_steps', 4)
@@ -217,23 +217,30 @@ class ModelAdapter(dl.BaseModelAdapter):
             grad_accum_steps = 1
         ##################### remove this ############################
         # Print directory structure of data_path up to 3 levels
-        logger.info(f"-HHH- Printing directory structure of {data_path} (up to 3 levels):")
-        print(f"-HHH- Directory structure of {data_path}:")
+        debug_msg = [f"-HHH- Printing directory structure of {data_path} (up to 3 levels):"]
+        debug_msg.append(f"-HHH- Directory structure of {data_path}:")
         for root, dirs, files in os.walk(data_path, topdown=True):
             level = root.replace(data_path, '').count(os.sep)
             if level <= 3:
                 indent = '  ' * level
-                logger.info(f"{indent}{os.path.basename(root)}/")
-                print(f"-HHH- {indent}{os.path.basename(root)}/")
+                debug_msg.append(f"{indent}{os.path.basename(root)}/")
                 if files:
                     subindent = '  ' * (level + 1)
                     for f in files:
-                        logger.info(f"{subindent}{f}")
-                        print(f"-HHH- {subindent}{f}")
+                        debug_msg.append(f"{subindent}{f}")
+
+        debug_output = '\n'.join(debug_msg)
+        logger.info(debug_output)
+        print(debug_output)
 
         # Flush stdout to ensure all logs are captured
         sys.stdout.flush()
 
+        def on_epoch_end(data):
+
+            pass
+
+        self.model.callbacks["on_fit_epoch_end"].append(on_epoch_end)
         self.model.train(
             dataset_dir=data_path,
             epochs=epochs,
@@ -242,10 +249,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             lr=lr,
             output_dir=output_path,
             device=device_name,
-            class_names=self.model_entity.labels,
-            fp16_eval=False,
-            amp=False,
-            dtype=torch.float16,  # Use float16 for training
+            num_workers=0,
         )
 
         # if device_name == 'cpu':
