@@ -2,6 +2,7 @@ import json
 import sys
 import logging
 import os
+import glob
 import shutil
 from typing import List, Any
 import torch
@@ -198,13 +199,21 @@ class ModelAdapter(dl.BaseModelAdapter):
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         logger.info(f'Starting training with data from {data_path}')
 
-        logger.info(f'-HHH- ver 28-apr 2 data_path: {data_path}')
-        print(f"-HHH- ver 28-apr 2data_path: {data_path}")
-        epochs = self.configuration.get('epochs', 10)
-        batch_size = self.configuration.get('batch_size', 4)
-        grad_accum_steps = self.configuration.get('grad_accum_steps', 4)
-        lr = self.configuration.get('lr', 1e-4)
+        logger.info(f'-HHH- ver 28-apr data_path: {data_path}')
+        print(f"-HHH- ver 28-apr data_path: {data_path}")
+        train_config = self.configuration.get('train_configs', {})
+        epochs = train_config.get('epochs', 10)
+        batch_size = train_config.get('batch_size', 4)
+        grad_accum_steps = train_config.get('grad_accum_steps', 4)
+        lr = train_config.get('lr', 1e-4)
+        start_epoch = self.configuration.get('start_epoch', 0)
+
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
+        resume_checkpoint = ''
+        if start_epoch > 0:
+            last_list = glob.glob(f"{data_path}/**/checkpoin.pth", recursive=True)
+            resume_checkpoint = max(last_list, key=os.path.getctime) if last_list else ''
+            logger.info(f'use checkpoint: {resume_checkpoint}')
 
         logger.info(
             f'Training configuration: epochs={epochs}, batch_size={batch_size}, lr={lr} , device_name={device_name}'
@@ -237,8 +246,11 @@ class ModelAdapter(dl.BaseModelAdapter):
         sys.stdout.flush()
 
         def on_epoch_end(data):
-
-            pass
+            # get last epoch checkpoint
+            self.current_epoch = data['epoch']
+            self.configuration['start_epoch'] = self.current_epoch + 1
+            # TODO : check if that is needed ?
+            self.save_to_model(local_path=output_path, cleanup=False)
 
         self.model.callbacks["on_fit_epoch_end"].append(on_epoch_end)
         self.model.train(
@@ -247,6 +259,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             batch_size=batch_size,
             grad_accum_steps=grad_accum_steps,
             lr=lr,
+            resume=resume_checkpoint,
             output_dir=output_path,
             device=device_name,
             num_workers=0,
@@ -256,6 +269,11 @@ class ModelAdapter(dl.BaseModelAdapter):
             amp=False,
             dtype=torch.float16,
         )
+
+        #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
+        if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == epochs:
+            self.model_entity.configuration['start_epoch'] = 0
+            self.model_entity.update()
 
         # if device_name == 'cpu':
         #     self.model.train(
