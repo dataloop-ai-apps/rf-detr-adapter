@@ -4,4 +4,4 @@
 .env
 *.pth
 /tmp
-
+.vscode
