@@ -353,6 +353,30 @@ class ModelAdapter(dl.BaseModelAdapter):
             dst_images_path = os.path.join(data_path, dist_dir_name)
             ModelAdapter._copy_files(src_images_path, dst_images_path)
 
+    def _parse_train_config(self) -> dict:
+        """
+        Parse training configuration from model configuration.
+
+        Returns:
+            dict: Dictionary containing parsed training parameters with default values
+        """
+        train_config = self.configuration.get('train_configs', {})
+        return {
+            'epochs': train_config.get('epochs', 10),
+            'batch_size': train_config.get('batch_size', 4),
+            'grad_accum_steps': train_config.get('grad_accum_steps', 4),
+            'lr': train_config.get('lr', 1e-4),
+            'lr_encoder': train_config.get('lr_encoder', 1.5e-4),
+            'resolution': train_config.get('resolution', 640),
+            'weight_decay': train_config.get('weight_decay', 1e-4),
+            'use_ema': train_config.get('use_ema', True),
+            'gradient_checkpointing': train_config.get('gradient_checkpointing', False),
+            'checkpoint_interval': train_config.get('checkpoint_interval', 10),
+            'early_stopping_patience': train_config.get('early_stopping_patience', 10),
+            'early_stopping_min_delta': train_config.get('early_stopping_min_delta', 0.001),
+            'early_stopping_use_ema': train_config.get('early_stopping_use_ema', False),
+        }
+
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
         Train the RF-DETR model on the provided dataset.
@@ -378,44 +402,49 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
         logger.info(f'Starting training with data from {data_path}')
 
-        train_config = self.configuration.get('train_configs', {})
-        epochs = train_config.get('epochs', 10)
-        batch_size = train_config.get('batch_size', 4)
-        grad_accum_steps = train_config.get('grad_accum_steps', 4)
-        lr = train_config.get('lr', 1e-4)
-        start_epoch = self.configuration.get('start_epoch', 0)
+        # Initialize basic training parameters
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
-        resume_checkpoint = ''
+        # start with default params, then update from train_configs
+        train_params = {
+            'dataset_dir': data_path,
+            'output_dir': output_path,
+            'device': device_name,
+            'num_workers': 0,
+            'dataset_file': 'coco',
+            'class_names': (
+                list(self.model_entity.label_to_id_map.keys()) if self.model_entity.label_to_id_map else None
+            ),
+        }
+
+        # Parse training configuration
+        train_params.update(self._parse_train_config())
+
+        # Handle checkpoint resuming
+        start_epoch = self.configuration.get('start_epoch', 0)
         if start_epoch > 0:
             print(f"start_epoch: {start_epoch}")
             last_list = glob.glob(f"{data_path}/**/checkpoin.pth", recursive=True)
             resume_checkpoint = max(last_list, key=os.path.getctime) if last_list else ''
             logger.info(f'resume from checkpoint: {resume_checkpoint}')
+            if resume_checkpoint:
+                train_params['resume'] = resume_checkpoint
 
-        logger.info(f'Training configuration: train_config={train_config}, device_name={device_name}')
+        # Add CUDA-specific parameters
+        if not torch.cuda.is_bf16_supported():
+            train_params.update({'fp16_eval': False, 'amp': False})
 
+        # Add callback
         self.model.callbacks["on_fit_epoch_end"].append(
             lambda data: self.on_epoch_end(data, kwargs.get('on_epoch_end_callback'))
         )
+
         logger.info('start rf-detr training')
-        self.model.train(
-            dataset_dir=data_path,
-            epochs=epochs,
-            batch_size=batch_size,
-            grad_accum_steps=grad_accum_steps,
-            lr=lr,
-            resume=resume_checkpoint,
-            output_dir=output_path,
-            device=device_name,
-            num_workers=0,
-            # this will be added if bf16 isnt supported
-            **({'fp16_eval': False, 'amp': False} if not torch.cuda.is_bf16_supported() else {}),
-        )
+        self.model.train(**train_params)
 
         #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
-        if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == epochs:
+        if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == train_params['epochs']:
             self.model_entity.configuration['start_epoch'] = 0
             self.model_entity.update()
 
