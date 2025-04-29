@@ -1,10 +1,9 @@
 import json
-import sys
 import logging
 import os
 import glob
 import shutil
-from typing import List, Any
+from typing import List, Any, Optional, Callable
 import numpy as np
 import torch
 import dtlpy as dl
@@ -17,24 +16,42 @@ logger = logging.getLogger('rf-detr-adapter')
 
 
 class ModelAdapter(dl.BaseModelAdapter):
-
     @staticmethod
     def _copy_files(src_path: str, dst_path: str) -> None:
+        """
+        Copy all files from source directory to destination directory.
+
+        Args:
+            src_path (str): Path to source directory containing files to copy
+            dst_path (str): Path to destination directory where files will be copied
+
+        Returns:
+            None
+        """
         logger.info(f'Copying files from {src_path} to {dst_path}')
-        print(f'-HHH- src_path: {src_path}')
-        print(f'-HHH- dst_path: {dst_path}')
         os.makedirs(dst_path, exist_ok=True)
         for filename in os.listdir(src_path):
             file_path = os.path.join(src_path, filename)
-            print(f'-HHH- file_path: {file_path}')
             if os.path.isfile(file_path):
                 new_file_path = os.path.join(dst_path, filename)
-                print(f'-HHH- new_file_path: {new_file_path}')
                 shutil.copy(file_path, new_file_path)
         logger.info('File copy completed')
 
     @staticmethod
     def _process_coco_json(output_annotations_path: str) -> None:
+        """
+        Process COCO JSON annotations file to make it compatible with RF-DETR requirements.
+
+        RF-DETR requires integer IDs and supercategory fields for categories. This function converts
+        string IDs to integers via hashing, adds missing supercategory fields, and updates file paths
+        to match new image locations by keeping only filenames.
+
+        Args:
+            output_annotations_path (str): Path to directory containing the COCO JSON file
+
+        Returns:
+            None
+        """
         src_json_path = os.path.join(output_annotations_path, 'coco.json')
         dest_json_path = os.path.join(output_annotations_path, '_annotations.coco.json')
 
@@ -70,6 +87,25 @@ class ModelAdapter(dl.BaseModelAdapter):
 
     @staticmethod
     def _extract_yolo_like_metrics(rf_detr_metrics: dict) -> dict:
+        """
+        Extract YOLO-like metrics from RF-DETR training metrics.
+
+        This method processes the metrics dictionary received from RF-DETR training and converts
+        it into a format similar to YOLO metrics for consistency and comparison purposes.
+
+        The following metrics are extracted:
+        - box_loss: Combined bbox regression loss and GIoU loss
+        - cls_loss: Classification loss from train_loss_ce
+        - mAP50-95(B): Mean Average Precision across IoU thresholds [0.50:0.95]
+        - mAP50(B): Average Precision at IoU=0.50
+        - recall(B): Average Recall with 100 detections per image
+
+        Args:
+            rf_detr_metrics (dict): Dictionary containing RF-DETR training metrics
+
+        Returns:
+            dict: Dictionary containing YOLO-like metrics extracted from RF-DETR data
+        """
         result = {}
 
         # Calculate box_loss: sum of bbox regression loss and GIoU loss
@@ -101,7 +137,25 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         return result
 
-    def on_epoch_end(self, data, faas_callback=None):
+    def on_epoch_end(self, data: dict, faas_callback: Optional[Callable] = None) -> None:
+        """
+        Callback executed at the end of each training epoch.
+
+        This method processes epoch metrics, updates model state, and saves metrics to the model entity.
+        It handles:
+        - Updating current epoch counter
+        - Executing FaaS callback if provided to report progress
+        - Saving metrics to the model entity
+        - Updating the start_epoch configuration for next epoch
+
+        Args:
+            data (dict): Dictionary containing epoch training data and metrics
+            faas_callback (Optional[Callable]): Optional callback function to report progress,
+                                              takes current epoch and total epochs as arguments
+
+        Returns:
+            None
+        """
         # get last epoch checkpoint
         self.current_epoch = data['epoch']
         if faas_callback is not None:
@@ -131,33 +185,54 @@ class ModelAdapter(dl.BaseModelAdapter):
         # self.save_to_model(local_path=self.configuration.get('output_path', ''), cleanup=False)
 
     def save(self, local_path: str, **kwargs) -> None:
+        """
+        Save model configuration by updating the weights filename.
+
+        This method updates the model configuration to point to the best checkpoint weights file.
+
+        Args:
+            local_path (str): Path where model files are saved (unused)
+            **kwargs: Additional keyword arguments (unused)
+
+        Returns:
+            None
+        """
         self.configuration.update({'weights_filename': 'checkpoint_best_total.pth'})
 
     def load(self, local_path: str, **kwargs) -> None:
-        """Load your model from saved weights"""
+        """
+        Load the model weights and configurations.
+
+        This method searches for model weights first in the specified local path,
+        then in /tmp/app/weights directory. If weights are not found in either location,
+        default pretrained weights will be used.
+
+        The weights in /tmp/app/weights are downloaded in docker image
+
+        Args:
+            local_path (str): Directory path containing the model files
+            **kwargs: Additional keyword arguments (unused)
+
+        Returns:
+            None
+        """
         logger.info(f'Loading model from {local_path}')
 
         model_filename = self.configuration.get('weights_filename', 'rf-detr-base-coco.pth')
-        logger.info(f'-HHH- model_filename: {model_filename}')
-        model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
-        logger.info(f'-HHH- model_filepath: {model_filepath}')
+        local_model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
         default_weights = os.path.join('/tmp/app/weights', model_filename)
 
         # when weights_path is None, the model will be loaded from the default weights
         weights_path = None
-        if os.path.isfile(model_filepath):
-            weights_path = model_filepath
+        if os.path.isfile(local_model_filepath):
+            weights_path = local_model_filepath
         elif os.path.isfile(default_weights):
             weights_path = default_weights
 
-        logger.info(f'-HHH- weights_path: {weights_path}')
         self.confidence_threshold = self.configuration.get('conf_thres', 0.25)
-
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
-
         # Get the number of classes from the model entity
         num_classes = len(self.model_entity.labels)
-        logger.info(f'Number of classes in dataset: {num_classes}')
 
         logger.info(
             f'Loading model with weights: {weights_path}, '
@@ -171,7 +246,6 @@ class ModelAdapter(dl.BaseModelAdapter):
             device=device_name,
             num_classes=num_classes,  # Pass the correct number of classes
         )
-        logger.info(f'-HHH- model created')
 
     # rf-detr is resize, normalize and convert to tensor in the model
     # nothing to do here
@@ -179,7 +253,16 @@ class ModelAdapter(dl.BaseModelAdapter):
     #     pass
 
     def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
-        """Run predictions on a batch of data"""
+        """Run predictions on a batch of data.
+
+        Args:
+            batch (List[Any]): List of images to run prediction on
+            **kwargs: Additional keyword arguments (unused)
+
+        Returns:
+            List[dl.AnnotationCollection]: List of annotation collections, one per image,
+                containing detected objects as boxes with labels and confidence scores
+        """
         logger.info(f'Predicting batch of size: {len(batch)}')
         results = self.model.predict(batch, threshold=self.confidence_threshold)
 
@@ -205,16 +288,26 @@ class ModelAdapter(dl.BaseModelAdapter):
         return batch_annotations
 
     def convert_from_dtlpy(self, data_path: str, **kwargs) -> None:
-        logger.info(f'Converting dataset from Dataloop format at {data_path}')
+        """Convert dataset from Dataloop format to COCO format.
+
+        This method converts a Dataloop dataset to COCO format required by RF-DETR. It validates box annotations
+        in each subset (train/validation) and converts them to match RF-DETR's train/valid directory structure.
+
+        Args:
+            data_path (str): Path to the directory where the dataset will be converted
+            **kwargs: Additional keyword arguments (unused)
+
+        Raises:
+            ValueError: If model has no labels defined or if no box annotations are found in a subset
+        """
+        logger.info(f'Converting dataset from Dataloop format to COCO format at {data_path}')
+        self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
-        print(f'-HHH- subsets: {subsets}')
-
         if len(self.model_entity.labels) == 0:
             logger.error("Model has no labels defined")
             raise ValueError('model.labels is empty. Model entity must have labels')
 
-        # TODO : learn how this code works ( add debug messages)
         for subset, filters_dict in subsets.items():
             logger.info(f'Processing subset: {subset}')
             filters = dl.Filters(custom_filter=filters_dict)
@@ -227,11 +320,10 @@ class ModelAdapter(dl.BaseModelAdapter):
                     f'Could not find box annotations in subset {subset}. Cannot train without annotations in the data subsets'
                 )
 
-        # TODO: check if that is needed
-        self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
-
         for subset_name in subsets.keys():
             logger.info(f'Converting subset: {subset_name} to COCO format')
+
+            # rf-detr expects train and valid folders
             dist_dir_name = subset_name if subset_name != 'validation' else 'valid'
             input_annotations_path = os.path.join(data_path, subset_name, 'json')
             output_annotations_path = os.path.join(data_path, dist_dir_name)
@@ -253,57 +345,61 @@ class ModelAdapter(dl.BaseModelAdapter):
                 logger.error(f"Error converting subset {subset_name}: {str(e)}")
                 raise
 
+            # convert coco.json to _annotations.coco.json
             ModelAdapter._process_coco_json(output_annotations_path)
 
+            # copy images from <data_path>/<subset_name>/items/<subset_name> to <data_path>/<dist_dir_name>
+            # for example :67f3d54728294f8e79c43965/train/items/train/0642b33245.jpg will move to 67f3d54728294f8e79c43965/train/0642b33245.jpg
             src_images_path = os.path.join(data_path, subset_name, 'items', subset_name)
             dst_images_path = os.path.join(data_path, dist_dir_name)
             ModelAdapter._copy_files(src_images_path, dst_images_path)
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
+        """
+        Train the RF-DETR model on the provided dataset.
+
+        Steps:
+        1. Get training configuration from model configuration
+        2. Handle resuming from checkpoint if start_epoch > 0
+        3. Add FaaS callback for epoch end events
+        4. Train the model
+        5. Update start_epoch in configuration
+
+        Args:
+            data_path (str): Path to directory containing the training data in COCO format
+            output_path (str): Path where trained model checkpoints and outputs will be saved
+            **kwargs: Additional keyword arguments
+                on_epoch_end_callback (Callable): Optional callback function to execute at the end of each epoch
+
+        Returns:
+            None
+
+        Raises:
+            RuntimeError: If CUDA device does not support bfloat16 dtype
+        """
         logger.info(f'Starting training with data from {data_path}')
 
-        logger.info(f'-HHH- ver 28-apr data_path: {data_path}')
-        print(f"-HHH- ver 28-apr data_path: {data_path}")
         train_config = self.configuration.get('train_configs', {})
         epochs = train_config.get('epochs', 10)
         batch_size = train_config.get('batch_size', 4)
         grad_accum_steps = train_config.get('grad_accum_steps', 4)
         lr = train_config.get('lr', 1e-4)
         start_epoch = self.configuration.get('start_epoch', 0)
-
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
+
         resume_checkpoint = ''
         if start_epoch > 0:
+            print(f"start_epoch: {start_epoch}")
             last_list = glob.glob(f"{data_path}/**/checkpoin.pth", recursive=True)
             resume_checkpoint = max(last_list, key=os.path.getctime) if last_list else ''
-            logger.info(f'use checkpoint: {resume_checkpoint}')
+            logger.info(f'resume from checkpoint: {resume_checkpoint}')
 
-        logger.info(
-            f'Training configuration: epochs={epochs}, batch_size={batch_size}, lr={lr} , device_name={device_name}'
+        logger.info(f'Training configuration: train_config={train_config}, device_name={device_name}')
+
+        self.model.callbacks["on_fit_epoch_end"].append(
+            lambda data: self.on_epoch_end(data, kwargs.get('on_epoch_end_callback'))
         )
-
-        # Print directory structure of data_path up to 3 levels
-        debug_msg = [f"-HHH- Printing directory structure of {data_path} (up to 3 levels):"]
-        debug_msg.append(f"-HHH- Directory structure of {data_path}:")
-        for root, dirs, files in os.walk(data_path, topdown=True):
-            level = root.replace(data_path, '').count(os.sep)
-            if level <= 3:
-                indent = '  ' * level
-                debug_msg.append(f"{indent}{os.path.basename(root)}/")
-                if files:
-                    subindent = '  ' * (level + 1)
-                    for f in files:
-                        debug_msg.append(f"{subindent}{f}")
-
-        debug_output = '\n'.join(debug_msg)
-        logger.info(debug_output)
-        print(debug_output)
-
-        # Flush stdout to ensure all logs are captured
-        sys.stdout.flush()
-        faas_callback = kwargs.get('on_epoch_end_callback')
-
-        self.model.callbacks["on_fit_epoch_end"].append(lambda data: self.on_epoch_end(data, faas_callback))
+        logger.info('start training')
         self.model.train(
             dataset_dir=data_path,
             epochs=epochs,
@@ -314,29 +410,9 @@ class ModelAdapter(dl.BaseModelAdapter):
             output_dir=output_path,
             device=device_name,
             num_workers=0,
-            # train crashed on : RuntimeError: Current CUDA Device does not support bfloat16. Please switch dtype to float16.
-            # TODO check if that is best way to handle this
-            fp16_eval=False,
-            amp=False,
-            dtype=torch.float16,
+            # this will be added if bf16 isnt supported
+            **({'fp16_eval': False, 'amp': False} if not torch.cuda.is_bf16_supported() else {}),
         )
-
-        # Print directory structure of data_path up to 3 levels
-        debug_msg = [f"-HHH- Printing directory structure of {output_path} (up to 3 levels):"]
-        debug_msg.append(f"-HHH- Directory structure of {output_path}:")
-        for root, dirs, files in os.walk(output_path, topdown=True):
-            level = root.replace(output_path, '').count(os.sep)
-            if level <= 3:
-                indent = '  ' * level
-                debug_msg.append(f"{indent}{os.path.basename(root)}/")
-                if files:
-                    subindent = '  ' * (level + 1)
-                    for f in files:
-                        debug_msg.append(f"{subindent}{f}")
-
-        debug_output = '\n'.join(debug_msg)
-        logger.info(debug_output)
-        print(debug_output)
 
         #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
         if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == epochs:
@@ -372,7 +448,7 @@ if __name__ == '__main__':
 
     # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
     # print(f'-HHH- predict res: {predict_res}')
-    model_name = 'rf-detr-clone-2604'
+    model_name = 'rd-dert-animals-sdk-3'
     model = project.models.get(model_name=model_name)
     model.status = 'pre-trained'
     model.update()
