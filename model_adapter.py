@@ -301,7 +301,6 @@ class ModelAdapter(dl.BaseModelAdapter):
             ValueError: If model has no labels defined or if no box annotations are found in a subset
         """
         logger.info(f'Converting dataset from Dataloop format to COCO format at {data_path}')
-        self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
         if len(self.model_entity.labels) == 0:
@@ -386,6 +385,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         lr = train_config.get('lr', 1e-4)
         start_epoch = self.configuration.get('start_epoch', 0)
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
         resume_checkpoint = ''
         if start_epoch > 0:
@@ -399,7 +399,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.model.callbacks["on_fit_epoch_end"].append(
             lambda data: self.on_epoch_end(data, kwargs.get('on_epoch_end_callback'))
         )
-        logger.info('start training')
+        logger.info('start rf-detr training')
         self.model.train(
             dataset_dir=data_path,
             epochs=epochs,
