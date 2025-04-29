@@ -131,7 +131,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # self.save_to_model(local_path=self.configuration.get('output_path', ''), cleanup=False)
 
     def save(self, local_path: str, **kwargs) -> None:
-        self.configuration.update({'weights_filename': 'weights/best.pth'})
+        self.configuration.update({'weights_filename': 'checkpoint_best_total.pth'})
 
     def load(self, local_path: str, **kwargs) -> None:
         """Load your model from saved weights"""
@@ -302,10 +302,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         # Flush stdout to ensure all logs are captured
         sys.stdout.flush()
         faas_callback = kwargs.get('on_epoch_end_callback')
-
-        ##################################### TODO remove this #####################################
-        epochs = 1
-        ##################################### TODO remove this #####################################
 
         self.model.callbacks["on_fit_epoch_end"].append(lambda data: self.on_epoch_end(data, faas_callback))
         self.model.train(
