@@ -12,6 +12,8 @@ USER 1000
 
 # Download weights
 RUN wget -O /tmp/app/weights/rf-detr-base-coco.pth https://storage.googleapis.com/rfdetr/rf-detr-base-coco.pth
+RUN wget -O /tmp/app/weights/rf-detr-base-2.pth https://storage.googleapis.com/rfdetr/rf-detr-base-2.pth
+RUN wget -O /tmp/app/weights/rf-detr-large.pth https://storage.googleapis.com/rfdetr/rf-detr-large.pth
 
 # Add this to solve this issue :
 # File "/tmp/.local/lib/python3.10/site-packages/transformers/utils/import_utils.py", line 1955, in __getattr__
