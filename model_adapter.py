@@ -10,6 +10,7 @@ import dtlpy as dl
 from dtlpyconverters import services, coco_converters
 
 from rfdetr import RFDETRBase, RFDETRLarge
+from rfdetr.config import TrainConfig
 from rfdetr.util.coco_classes import COCO_CLASSES
 
 logger = logging.getLogger('rf-detr-adapter')
@@ -137,6 +138,51 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         return result
 
+    def _get_rf_detr_train_config(self, data_path: str, output_path: str) -> TrainConfig:
+        """
+        Get RF-DETR training configuration from model configuration.
+
+        This method creates a TrainConfig object with parameters from the model's configuration.
+        It sets up training hyperparameters like learning rates, batch size, epochs etc.
+        The configuration includes:
+        - Dataset and output paths
+        - Training parameters (epochs, batch size, learning rates)
+        - Optimization settings (gradient accumulation, weight decay)
+        - Model checkpointing and early stopping parameters
+        - Class names from the model's label map
+
+        Args:
+            data_path (str): Path to directory containing the training data
+            output_path (str): Path where model outputs and checkpoints will be saved
+
+        Returns:
+            TrainConfig: Configuration object for RF-DETR training with all parameters set
+
+        Note:
+            Default values are used for parameters not specified in the model configuration.
+            The number of workers is set to 0 to avoid multiprocessing issues.
+        """
+        train_config_dict = self.configuration.get('train_configs', {})
+
+        # Initialize with required parameters
+        return TrainConfig(
+            dataset_dir=data_path,
+            output_dir=output_path,
+            num_workers=0,
+            epochs=train_config_dict.get('epochs', 10),
+            batch_size=train_config_dict.get('batch_size', 4),
+            grad_accum_steps=train_config_dict.get('grad_accum_steps', 4),
+            lr=train_config_dict.get('lr', 1e-4),
+            lr_encoder=train_config_dict.get('lr_encoder', 1.5e-4),
+            weight_decay=train_config_dict.get('weight_decay', 1e-4),
+            use_ema=train_config_dict.get('use_ema', True),
+            checkpoint_interval=train_config_dict.get('checkpoint_interval', 10),
+            early_stopping_patience=train_config_dict.get('early_stopping_patience', 10),
+            early_stopping_min_delta=train_config_dict.get('early_stopping_min_delta', 0.001),
+            early_stopping_use_ema=train_config_dict.get('early_stopping_use_ema', False),
+            class_names=list(self.model_entity.label_to_id_map.keys()) if self.model_entity.label_to_id_map else None,
+        )
+
     def on_epoch_end(self, data: dict, faas_callback: Optional[Callable] = None) -> None:
         """
         Callback executed at the end of each training epoch.
@@ -159,7 +205,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         # get last epoch checkpoint
         self.current_epoch = data['epoch']
         if faas_callback is not None:
-            faas_callback(self.current_epoch, self.configuration.get('epochs', 10))
+            faas_callback(self.current_epoch, self.train_config.epochs)
         samples = list()
         NaN_dict = {'box_loss': 1, 'cls_loss': 1, 'mAP50(B)': 0, 'mAP50-95(B)': 0, 'recall(B)': 0}
 
@@ -399,13 +445,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
         logger.info(f'Starting training with data from {data_path}')
 
-        train_config = self.configuration.get('train_configs', {})
-        epochs = train_config.get('epochs', 10)
-        batch_size = train_config.get('batch_size', 4)
-        grad_accum_steps = train_config.get('grad_accum_steps', 4)
-        lr = train_config.get('lr', 1e-4)
+        self.train_config = self._get_rf_detr_train_config(data_path, output_path)
+
         start_epoch = self.configuration.get('start_epoch', 0)
-        device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
         resume_checkpoint = ''
@@ -415,29 +457,19 @@ class ModelAdapter(dl.BaseModelAdapter):
             resume_checkpoint = max(last_list, key=os.path.getctime) if last_list else ''
             logger.info(f'resume from checkpoint: {resume_checkpoint}')
 
-        logger.info(f'Training configuration: train_config={train_config}, device_name={device_name}')
-
         self.model.callbacks["on_fit_epoch_end"].append(
             lambda data: self.on_epoch_end(data, kwargs.get('on_epoch_end_callback'))
         )
         logger.info('start rf-detr training')
-        self.model.train(
-            dataset_dir=data_path,
-            epochs=epochs,
-            batch_size=batch_size,
-            grad_accum_steps=grad_accum_steps,
-            lr=lr,
+        self.model.train_from_config(
+            config=self.train_config,
             resume=resume_checkpoint,
-            output_dir=output_path,
-            device=device_name,
-            num_workers=0,
-            class_names=list(self.model_entity.label_to_id_map.keys()) if self.model_entity.label_to_id_map else None,
             # this will be added if bf16 isnt supported
             **({'fp16_eval': False, 'amp': False} if not torch.cuda.is_bf16_supported() else {}),
         )
 
         #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
-        if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == epochs:
+        if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == self.train_config.epochs:
             self.model_entity.configuration['start_epoch'] = 0
             self.model_entity.update()
 
