@@ -9,7 +9,7 @@ import torch
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
 
-from rfdetr import RFDETRBase
+from rfdetr import RFDETRBase, RFDETRLarge
 from rfdetr.util.coco_classes import COCO_CLASSES
 
 logger = logging.getLogger('rf-detr-adapter')
@@ -222,6 +222,10 @@ class ModelAdapter(dl.BaseModelAdapter):
         local_model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
         default_weights = os.path.join('/tmp/app/weights', model_filename)
 
+        use_rf_detr_large = self.configuration.get('use_rf_detr_large', False)
+        if model_filename == 'rf-detr-large.pth':
+            use_rf_detr_large = True
+
         # when weights_path is None, the model will be loaded from the default weights
         weights_path = None
         if os.path.isfile(local_model_filepath):
@@ -238,14 +242,21 @@ class ModelAdapter(dl.BaseModelAdapter):
             f'Loading model with weights: {weights_path}, '
             f'confidence threshold: {self.confidence_threshold}, '
             f'device: {device_name}, '
-            f'num_classes: {num_classes}'
+            f'num_classes: {num_classes}, '
+            f'use_large_model: {use_rf_detr_large}'
         )
-
-        self.model = RFDETRBase(
-            pretrain_weights=weights_path,
-            device=device_name,
-            num_classes=num_classes,  # Pass the correct number of classes
-        )
+        if not use_rf_detr_large:
+            self.model = RFDETRBase(
+                pretrain_weights=weights_path,
+                device=device_name,
+                num_classes=num_classes,  # Pass the correct number of classes
+            )
+        else:
+            self.model = RFDETRLarge(
+                pretrain_weights=weights_path,
+                device=device_name,
+                num_classes=num_classes,  # Pass the correct number of classes
+            )
 
     # rf-detr is resize, normalize and convert to tensor in the model
     # nothing to do here
@@ -271,10 +282,20 @@ class ModelAdapter(dl.BaseModelAdapter):
         if not isinstance(results, list):
             results = [results]
 
+        # if id_to_label_map is not in the configuration, use COCO_CLASSES
+        id_to_label_map = self.configuration.get('id_to_label_map', COCO_CLASSES)
+        # Convert id_to_label_map keys from string to int if needed
+        if any(isinstance(k, str) for k in id_to_label_map.keys()):
+            id_to_label_map = {int(k): v for k, v in id_to_label_map.items()}
+
+        # Increment all keys by 1 if 0 exists in id_to_label_map
+        if 0 in id_to_label_map:
+            id_to_label_map = {k + 1: v for k, v in id_to_label_map.items()}
+
         for detection in results:
             image_annotations = dl.AnnotationCollection()
             for xyxy, class_id, conf in zip(detection.xyxy, detection.class_id, detection.confidence):
-                label = COCO_CLASSES[class_id]
+                label = id_to_label_map[class_id]
                 image_annotations.add(
                     dl.Box(left=xyxy[0], top=xyxy[1], right=xyxy[2], bottom=xyxy[3], label=label),
                     model_info={
@@ -353,30 +374,6 @@ class ModelAdapter(dl.BaseModelAdapter):
             dst_images_path = os.path.join(data_path, dist_dir_name)
             ModelAdapter._copy_files(src_images_path, dst_images_path)
 
-    def _parse_train_config(self) -> dict:
-        """
-        Parse training configuration from model configuration.
-
-        Returns:
-            dict: Dictionary containing parsed training parameters with default values
-        """
-        train_config = self.configuration.get('train_configs', {})
-        return {
-            'epochs': train_config.get('epochs', 10),
-            'batch_size': train_config.get('batch_size', 4),
-            'grad_accum_steps': train_config.get('grad_accum_steps', 4),
-            'lr': train_config.get('lr', 1e-4),
-            'lr_encoder': train_config.get('lr_encoder', 1.5e-4),
-            'resolution': train_config.get('resolution', 640),
-            'weight_decay': train_config.get('weight_decay', 1e-4),
-            'use_ema': train_config.get('use_ema', True),
-            'gradient_checkpointing': train_config.get('gradient_checkpointing', False),
-            'checkpoint_interval': train_config.get('checkpoint_interval', 10),
-            'early_stopping_patience': train_config.get('early_stopping_patience', 10),
-            'early_stopping_min_delta': train_config.get('early_stopping_min_delta', 0.001),
-            'early_stopping_use_ema': train_config.get('early_stopping_use_ema', False),
-        }
-
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
         Train the RF-DETR model on the provided dataset.
@@ -402,49 +399,45 @@ class ModelAdapter(dl.BaseModelAdapter):
         """
         logger.info(f'Starting training with data from {data_path}')
 
-        # Initialize basic training parameters
+        train_config = self.configuration.get('train_configs', {})
+        epochs = train_config.get('epochs', 10)
+        batch_size = train_config.get('batch_size', 4)
+        grad_accum_steps = train_config.get('grad_accum_steps', 4)
+        lr = train_config.get('lr', 1e-4)
+        start_epoch = self.configuration.get('start_epoch', 0)
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
-        # start with default params, then update from train_configs
-        train_params = {
-            'dataset_dir': data_path,
-            'output_dir': output_path,
-            'device': device_name,
-            'num_workers': 0,
-            'dataset_file': 'coco',
-            'class_names': (
-                list(self.model_entity.label_to_id_map.keys()) if self.model_entity.label_to_id_map else None
-            ),
-        }
-
-        # Parse training configuration
-        train_params.update(self._parse_train_config())
-
-        # Handle checkpoint resuming
-        start_epoch = self.configuration.get('start_epoch', 0)
+        resume_checkpoint = ''
         if start_epoch > 0:
             print(f"start_epoch: {start_epoch}")
             last_list = glob.glob(f"{data_path}/**/checkpoin.pth", recursive=True)
             resume_checkpoint = max(last_list, key=os.path.getctime) if last_list else ''
             logger.info(f'resume from checkpoint: {resume_checkpoint}')
-            if resume_checkpoint:
-                train_params['resume'] = resume_checkpoint
 
-        # Add CUDA-specific parameters
-        if not torch.cuda.is_bf16_supported():
-            train_params.update({'fp16_eval': False, 'amp': False})
+        logger.info(f'Training configuration: train_config={train_config}, device_name={device_name}')
 
-        # Add callback
         self.model.callbacks["on_fit_epoch_end"].append(
             lambda data: self.on_epoch_end(data, kwargs.get('on_epoch_end_callback'))
         )
-
         logger.info('start rf-detr training')
-        self.model.train(**train_params)
+        self.model.train(
+            dataset_dir=data_path,
+            epochs=epochs,
+            batch_size=batch_size,
+            grad_accum_steps=grad_accum_steps,
+            lr=lr,
+            resume=resume_checkpoint,
+            output_dir=output_path,
+            device=device_name,
+            num_workers=0,
+            class_names=list(self.model_entity.label_to_id_map.keys()) if self.model_entity.label_to_id_map else None,
+            # this will be added if bf16 isnt supported
+            **({'fp16_eval': False, 'amp': False} if not torch.cuda.is_bf16_supported() else {}),
+        )
 
         #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
-        if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == train_params['epochs']:
+        if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == epochs:
             self.model_entity.configuration['start_epoch'] = 0
             self.model_entity.update()
 

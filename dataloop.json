@@ -1,7 +1,7 @@
 {
     "name": "rf-detr",
     "displayName": "RoboFlow DETR",
-    "version": "1.0.22",
+    "version": "1.0.30",
     "scope": "project",
     "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
     "attributes": {
@@ -21,7 +21,7 @@
                 "runtime": {
                     "podType": "regular-xs",
                     "concurrency": 1,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.7",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.8",
                     "autoscaler": {
                         "type": "rabbitmq",
                         "minReplicas": 0,
@@ -35,7 +35,7 @@
                 "runtime": {
                     "podType": "gpu-t4",
                     "concurrency": 1,
-                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.7",
+                    "runnerImage": "gcr.io/viewo-g/piper/agent/runner/apps/rf-detr-adapter:0.0.8",
                     "autoscaler": {
                         "type": "rabbitmq",
                         "minReplicas": 0,
