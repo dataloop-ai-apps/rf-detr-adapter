@@ -5,3 +5,4 @@
 *.pth
 /tmp
 .vscode
+__pycache__

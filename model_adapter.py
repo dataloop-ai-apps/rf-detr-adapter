@@ -1,14 +1,13 @@
 import json
 import logging
 import os
-import glob
 import shutil
 from typing import List, Any, Optional, Callable
 import numpy as np
 import torch
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
-
+from dtlpy.services import service_defaults
 from rfdetr import RFDETRBase, RFDETRLarge
 from rfdetr.config import TrainConfig
 from rfdetr.util.coco_classes import COCO_CLASSES
@@ -183,7 +182,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             class_names=list(self.model_entity.label_to_id_map.keys()) if self.model_entity.label_to_id_map else None,
         )
 
-    def on_epoch_end(self, data: dict, faas_callback: Optional[Callable] = None) -> None:
+    def on_epoch_end(self, data: dict, output_path: str, faas_callback: Optional[Callable] = None) -> None:
         """
         Callback executed at the end of each training epoch.
 
@@ -202,7 +201,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         Returns:
             None
         """
-        # get last epoch checkpoint
         self.current_epoch = data['epoch']
         if faas_callback is not None:
             faas_callback(self.current_epoch, self.train_config.epochs)
@@ -227,8 +225,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.model_entity.metrics.create(samples=samples, dataset_id=self.model_entity.dataset_id)
 
         self.configuration['start_epoch'] = self.current_epoch + 1
-        # TODO : check if that is needed ? since i see its already called in BaseModelAdapter
-        # self.save_to_model(local_path=self.configuration.get('output_path', ''), cleanup=False)
+        logger.info(f'Saving model from {output_path}')
+        self.save_to_model(local_path=output_path, cleanup=False)
 
     def save(self, local_path: str, **kwargs) -> None:
         """
@@ -446,6 +444,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info(f'Starting training with data from {data_path}')
 
         self.train_config = self._get_rf_detr_train_config(data_path, output_path)
+        logger.info(f'train_config: {self.train_config}')
 
         start_epoch = self.configuration.get('start_epoch', 0)
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
@@ -453,14 +452,18 @@ class ModelAdapter(dl.BaseModelAdapter):
         # Find the most recent checkpoint file to resume training from if start_epoch > 0
         resume_checkpoint = ''
         if start_epoch > 0:
-            print(f"start_epoch: {start_epoch}")
-            last_list = glob.glob(f"{data_path}/**/checkpoin.pth", recursive=True)
-            resume_checkpoint = max(last_list, key=os.path.getctime) if last_list else ''
-            logger.info(f'resume from checkpoint: {resume_checkpoint}')
+            checkpoint_path = os.path.join(
+                service_defaults.DATALOOP_PATH, "models", self.model_entity.name, 'checkpoint.pth'
+            )
+            if not os.path.isfile(checkpoint_path):
+                logger.info(f'No checkpoint found at {checkpoint_path}')
+            else:
+                logger.info(f'resume from checkpoint: {resume_checkpoint}')
+                resume_checkpoint = checkpoint_path
 
         # Add callback for epoch end events
         self.model.callbacks["on_fit_epoch_end"].append(
-            lambda data: self.on_epoch_end(data, kwargs.get('on_epoch_end_callback'))
+            lambda data: self.on_epoch_end(data, output_path, kwargs.get('on_epoch_end_callback'))
         )
         logger.info('start rf-detr training')
         self.model.train_from_config(
