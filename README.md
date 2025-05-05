@@ -8,6 +8,11 @@ RF-DETR is a real-time, transformer-based object detection model that delivers b
 
 Thanks to its compact architecture, RF-DETR is well-suited for edge deployments where low latency and high precision are essential. This adapter connects RF-DETR to the Dataloop ecosystem, enabling streamlined training, evaluation, and deployment workflows for object detection tasks at scale.
 
+## Why RF-DETR?
+
+Recent changes in the licensing of YOLO models, particularly YOLOv8, have introduced restrictions that impact their use in commercial applications. YOLOv8 is now licensed under AGPL-3.0, which requires that any derivative works or applications that use the software and are distributed must also be open-sourced under the same license. For organizations that wish to keep their source code proprietary, this necessitates obtaining a commercial Enterprise License from Ultralytics.
+
+In contrast, RF-DETR is released under the permissive Apache 2.0 license, allowing for free use in both open-source and proprietary projects without the need for additional licensing. RF-DETR offers a license-friendly alternative for commercial and proprietary applications.
 
 ## Requirements
 
@@ -22,7 +27,7 @@ Thanks to its compact architecture, RF-DETR is well-suited for edge deployments 
 
 To use this adapter, make sure you have a [project](https://developers.dataloop.ai/tutorials/getting_started/sdk_overview/chapter/#to-create-a-new-project) and a [dataset](https://developers.dataloop.ai/tutorials/data_management/datasets_and_versioning/chapter) in your Dataloop account.
 
-For training purposes, ensure your dataset includes subsets (e.g., "train", "validation") using DQL filters.
+For training purposes, ensure your dataset includes subsets (e.g., "train", "validation").
 
 ## Training and Fine-Tuning
 
