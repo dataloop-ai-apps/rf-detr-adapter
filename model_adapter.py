@@ -168,7 +168,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         return TrainConfig(
             dataset_dir=data_path,
             output_dir=output_path,
-            num_workers=0,
+            num_workers=0,  # default num_workers cause issue in loading data
             epochs=train_config_dict.get('epochs', 10),
             batch_size=train_config_dict.get('batch_size', 4),
             grad_accum_steps=train_config_dict.get('grad_accum_steps', 4),
@@ -268,16 +268,16 @@ class ModelAdapter(dl.BaseModelAdapter):
         local_model_filepath = os.path.normpath(os.path.join(local_path, model_filename))
         default_weights = os.path.join('/tmp/app/weights', model_filename)
 
-        use_rf_detr_large = self.configuration.get('use_rf_detr_large', False)
-        if model_filename == 'rf-detr-large.pth':
-            use_rf_detr_large = True
-
         # when weights_path is None, the model will be loaded from the default weights
         weights_path = None
         if os.path.isfile(local_model_filepath):
             weights_path = local_model_filepath
         elif os.path.isfile(default_weights):
             weights_path = default_weights
+
+        use_rf_detr_large = self.configuration.get('use_rf_detr_large', False)
+        if model_filename == 'rf-detr-large.pth':
+            use_rf_detr_large = True
 
         self.confidence_threshold = self.configuration.get('conf_thres', 0.25)
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -450,6 +450,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         start_epoch = self.configuration.get('start_epoch', 0)
         self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
 
+        # Find the most recent checkpoint file to resume training from if start_epoch > 0
         resume_checkpoint = ''
         if start_epoch > 0:
             print(f"start_epoch: {start_epoch}")
@@ -457,6 +458,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             resume_checkpoint = max(last_list, key=os.path.getctime) if last_list else ''
             logger.info(f'resume from checkpoint: {resume_checkpoint}')
 
+        # Add callback for epoch end events
         self.model.callbacks["on_fit_epoch_end"].append(
             lambda data: self.on_epoch_end(data, kwargs.get('on_epoch_end_callback'))
         )
