@@ -178,7 +178,9 @@ class ModelAdapter(dl.BaseModelAdapter):
             early_stopping_patience=train_config_dict.get('early_stopping_patience', 10),
             early_stopping_min_delta=train_config_dict.get('early_stopping_min_delta', 0.001),
             early_stopping_use_ema=train_config_dict.get('early_stopping_use_ema', False),
-            class_names=list(self.model_entity.label_to_id_map.keys()) if self.model_entity.label_to_id_map else None,
+            class_names=(
+                list(self.model_entity.dataset.instance_map.keys()) if self.model_entity.dataset.instance_map else None
+            ),
         )
 
     def on_epoch_end(self, data: dict, output_path: str, faas_callback: Optional[Callable] = None) -> None:
@@ -381,7 +383,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             input_annotations_path = os.path.join(data_path, subset_name, 'json')
             output_annotations_path = os.path.join(data_path, dist_dir_name)
 
-            self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
+            # self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
             # Ensure instance map IDs start from 1 not 0
             if 0 in self.model_entity.dataset.instance_map.values():
                 self.model_entity.dataset.instance_map = {
