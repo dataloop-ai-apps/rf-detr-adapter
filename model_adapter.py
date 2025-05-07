@@ -10,7 +10,6 @@ from dtlpyconverters import services, coco_converters
 from dtlpy.services import service_defaults
 from rfdetr import RFDETRBase, RFDETRLarge
 from rfdetr.config import TrainConfig
-from rfdetr.util.coco_classes import COCO_CLASSES
 
 logger = logging.getLogger('rf-detr-adapter')
 
@@ -326,20 +325,10 @@ class ModelAdapter(dl.BaseModelAdapter):
         if not isinstance(results, list):
             results = [results]
 
-        # if id_to_label_map is not in the configuration, use COCO_CLASSES
-        id_to_label_map = self.configuration.get('id_to_label_map', COCO_CLASSES)
-        # Convert id_to_label_map keys from string to int if needed
-        if any(isinstance(k, str) for k in id_to_label_map.keys()):
-            id_to_label_map = {int(k): v for k, v in id_to_label_map.items()}
-
-        # Increment all keys by 1 if 0 exists in id_to_label_map
-        if 0 in id_to_label_map:
-            id_to_label_map = {k + 1: v for k, v in id_to_label_map.items()}
-
         for detection in results:
             image_annotations = dl.AnnotationCollection()
             for xyxy, class_id, conf in zip(detection.xyxy, detection.class_id, detection.confidence):
-                label = id_to_label_map[class_id]
+                label = self.model.class_names[class_id]
                 image_annotations.add(
                     dl.Box(left=xyxy[0], top=xyxy[1], right=xyxy[2], bottom=xyxy[3], label=label),
                     model_info={
@@ -391,6 +380,13 @@ class ModelAdapter(dl.BaseModelAdapter):
             dist_dir_name = subset_name if subset_name != 'validation' else 'valid'
             input_annotations_path = os.path.join(data_path, subset_name, 'json')
             output_annotations_path = os.path.join(data_path, dist_dir_name)
+
+            self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
+            # Ensure instance map IDs start from 1 not 0
+            if 0 in self.model_entity.dataset.instance_map.values():
+                self.model_entity.dataset.instance_map = {
+                    label: label_id + 1 for label, label_id in self.model_entity.dataset.instance_map.items()
+                }
 
             converter = coco_converters.DataloopToCoco(
                 output_annotations_path=output_annotations_path,
@@ -447,8 +443,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         logger.info(f'train_config: {self.train_config}')
 
         start_epoch = self.configuration.get('start_epoch', 0)
-        self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
-
         # Find the most recent checkpoint file to resume training from if start_epoch > 0
         resume_checkpoint = ''
         if start_epoch > 0:
@@ -486,11 +480,11 @@ if __name__ == '__main__':
     # if dl.token_expired():
     #     dl.login()
 
-    dl.login_api_key(
-        api_key='eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJlbWFpbCI6Imh1c2FtLm1AZGF0YWxvb3AuYWkiLCJpc3MiOiJodHRwczovL2dhdGUuZGF0YWxvb3AuYWkvMSIsImF1ZCI6Imh0dHBzOi8vZ2F0ZS5kYXRhbG9vcC5haS9hcGkvdjEiLCJpYXQiOjE3NDQwMzE5MjksImV4cCI6MTc3NDc5MDMyOSwic3ViIjoiYXBpa2V5fDM1YWQ0NWVjLTg2MjEtNGYxOC1iODc0LTJkMTFkZjdlZmI2MiIsImh0dHBzOi8vZGF0YWxvb3AuYWkvYXV0aG9yaXphdGlvbiI6eyJ1c2VyX3R5cGUiOiJhcGlrZXkiLCJyb2xlcyI6W119fQ.GlmZ1z9pjnDsdPoHc81inCZVJ-ZmZiwBS4gXfJIl3Ns2EwKl3LcJvDxUCU5ag6s_UpBhx1cSPJZhYe5eXrOjVORD1UJ4wPcVsd1_rzK5PN_skIsOjBdb7IngbAWWfW8cth_ByrKBWtEkGTwt40eN5FpCt-Wy7QP0spuBl_Tye7k3ReynSsO8au6W7qUm4PsvU4UHKWjywRQSH3usfOrsIwFJW4NyIAGdOyHS5Gekba1s26ZygOwlws5EeTFUAmWmLYKRYKh9K_n5e9uWHjgpbxkQsvnCAs9hnACudAMY37LN8KRgdmHOiaU-OZ1c7rSxx_S98a8hihXr2KYRbbm8zg'
-    )
-
-    project = dl.projects.get(project_name='ShadiDemo')
+    # dl.login_api_key(
+    #     api_key='eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJlbWFpbCI6Imh1c2FtLm1AZGF0YWxvb3AuYWkiLCJpc3MiOiJodHRwczovL2dhdGUuZGF0YWxvb3AuYWkvMSIsImF1ZCI6Imh0dHBzOi8vZ2F0ZS5kYXRhbG9vcC5haS9hcGkvdjEiLCJpYXQiOjE3NDQwMzE5MjksImV4cCI6MTc3NDc5MDMyOSwic3ViIjoiYXBpa2V5fDM1YWQ0NWVjLTg2MjEtNGYxOC1iODc0LTJkMTFkZjdlZmI2MiIsImh0dHBzOi8vZGF0YWxvb3AuYWkvYXV0aG9yaXphdGlvbiI6eyJ1c2VyX3R5cGUiOiJhcGlrZXkiLCJyb2xlcyI6W119fQ.GlmZ1z9pjnDsdPoHc81inCZVJ-ZmZiwBS4gXfJIl3Ns2EwKl3LcJvDxUCU5ag6s_UpBhx1cSPJZhYe5eXrOjVORD1UJ4wPcVsd1_rzK5PN_skIsOjBdb7IngbAWWfW8cth_ByrKBWtEkGTwt40eN5FpCt-Wy7QP0spuBl_Tye7k3ReynSsO8au6W7qUm4PsvU4UHKWjywRQSH3usfOrsIwFJW4NyIAGdOyHS5Gekba1s26ZygOwlws5EeTFUAmWmLYKRYKh9K_n5e9uWHjgpbxkQsvnCAs9hnACudAMY37LN8KRgdmHOiaU-OZ1c7rSxx_S98a8hihXr2KYRbbm8zg'
+    # )
+    print("dummy breakpoint")
+    project = dl.projects.get(project_name='IPM development')
     # dataset = project.datasets.get(dataset_name='nvidia-husam-clone-updated-name')
 
     # model_id = '67fe3466f41fe3efebd2c433'
@@ -507,7 +501,7 @@ if __name__ == '__main__':
 
     # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
     # print(f'-HHH- predict res: {predict_res}')
-    model_name = 'rd-dert-animals-sdk-3'
+    model_name = 'rd-dert-sdk-clone'
     model = project.models.get(model_name=model_name)
     model.status = 'pre-trained'
     model.update()
