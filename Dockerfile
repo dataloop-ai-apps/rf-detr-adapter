@@ -22,7 +22,12 @@ RUN wget -O /tmp/app/weights/rf-detr-large.pth https://storage.googleapis.com/rf
 #   raise RuntimeError(
 # RuntimeError: Failed to import transformers.models.bloom.modeling_bloom because of the following error (look up to see its traceback):
 # module 'torch' has no attribute 'compiler'
-RUN pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cu118 \
+
+# Install PyTorch from custom index
+RUN pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cu118
+
+# Install the rest using default PyPI
+RUN pip install \
     dtlpy \
     git+https://github.com/roboflow/rf-detr.git \
     git+https://github.com/dataloop-ai-apps/dtlpy-converters \
