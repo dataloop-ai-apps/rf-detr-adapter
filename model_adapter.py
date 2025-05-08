@@ -503,7 +503,7 @@ if __name__ == '__main__':
 
     # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
     # print(f'-HHH- predict res: {predict_res}')
-    model_name = 'rd-dert-sdk-clone'
+    model_name = 'rd-dert-sdk-clone-2'
     model = project.models.get(model_name=model_name)
     model.status = 'pre-trained'
     model.update()
