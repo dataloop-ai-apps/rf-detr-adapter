@@ -285,21 +285,26 @@ class ModelAdapter(dl.BaseModelAdapter):
             f'device: {device_name}, '
             f'num_classes: {num_classes}'
         )
-
-        if model_filename != 'rf-detr-large.pth':
+        # Try to load the base model first. If there's a size mismatch error,
+        # it means the weights are for the large model variant, so we fall back
+        # to loading the large model instead. Any other errors are re-raised.
+        try:
             logger.info(f'loading base model')
             self.model = RFDETRBase(
                 pretrain_weights=weights_path,
                 device=device_name,
                 num_classes=num_classes,  # Pass the correct number of classes
             )
-        else:
-            logger.info(f'loading large model')
-            self.model = RFDETRLarge(
-                pretrain_weights=weights_path,
-                device=device_name,
-                num_classes=num_classes,  # Pass the correct number of classes
-            )
+        except RuntimeError as e:
+            if "size mismatch" in str(e):
+                logger.info(f'loading large model')
+                self.model = RFDETRLarge(
+                    pretrain_weights=weights_path,
+                    device=device_name,
+                    num_classes=num_classes,  # Pass the correct number of classes
+                )
+            else:
+                raise
 
     # rf-detr is resize, normalize and convert to tensor in the model
     # nothing to do here
