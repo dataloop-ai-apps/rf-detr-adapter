@@ -274,6 +274,10 @@ class ModelAdapter(dl.BaseModelAdapter):
         elif os.path.isfile(default_weights):
             weights_path = default_weights
 
+        use_rf_detr_large = self.configuration.get('use_rf_detr_large', False)
+        if model_filename == 'rf-detr-large.pth':
+            use_rf_detr_large = True
+
         self.confidence_threshold = self.configuration.get('conf_thres', 0.25)
         device_name = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Get the number of classes from the model entity
@@ -283,28 +287,21 @@ class ModelAdapter(dl.BaseModelAdapter):
             f'Loading model with weights: {weights_path}, '
             f'confidence threshold: {self.confidence_threshold}, '
             f'device: {device_name}, '
-            f'num_classes: {num_classes}'
+            f'num_classes: {num_classes}, '
+            f'use_large_model: {use_rf_detr_large}'
         )
-        # Try to load the base model first. If there's a size mismatch error,
-        # it means the weights are for the large model variant, so we fall back
-        # to loading the large model instead. Any other errors are re-raised.
-        try:
-            logger.info(f'loading base model')
+        if use_rf_detr_large is False:
             self.model = RFDETRBase(
                 pretrain_weights=weights_path,
                 device=device_name,
                 num_classes=num_classes,  # Pass the correct number of classes
             )
-        except RuntimeError as e:
-            if "size mismatch" in str(e):
-                logger.info(f'loading large model')
-                self.model = RFDETRLarge(
-                    pretrain_weights=weights_path,
-                    device=device_name,
-                    num_classes=num_classes,  # Pass the correct number of classes
-                )
-            else:
-                raise
+        else:
+            self.model = RFDETRLarge(
+                pretrain_weights=weights_path,
+                device=device_name,
+                num_classes=num_classes,  # Pass the correct number of classes
+            )
 
     # rf-detr is resize, normalize and convert to tensor in the model
     # nothing to do here
@@ -369,10 +366,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             input_annotations_path = os.path.join(data_path, subset_name, 'json')
             output_annotations_path = os.path.join(data_path, dist_dir_name)
 
-            # self.model_entity.dataset.instance_map = self.model_entity.label_to_id_map
             # Ensure instance map IDs start from 1 not 0
-
-            # check without
             if 0 in self.model_entity.dataset.instance_map.values():
                 self.model_entity.dataset.instance_map = {
                     label: label_id + 1 for label, label_id in self.model_entity.dataset.instance_map.items()
@@ -461,3 +455,46 @@ class ModelAdapter(dl.BaseModelAdapter):
             self.model_entity.update()
 
         logger.info('Training completed')
+
+
+if __name__ == '__main__':
+    # Smart login with token handling
+    # if dl.token_expired():
+    #     dl.login()
+
+    dl.login_api_key(
+        api_key='eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJlbWFpbCI6Imh1c2FtLm1AZGF0YWxvb3AuYWkiLCJpc3MiOiJodHRwczovL2dhdGUuZGF0YWxvb3AuYWkvMSIsImF1ZCI6Imh0dHBzOi8vZ2F0ZS5kYXRhbG9vcC5haS9hcGkvdjEiLCJpYXQiOjE3NDQwMzE5MjksImV4cCI6MTc3NDc5MDMyOSwic3ViIjoiYXBpa2V5fDM1YWQ0NWVjLTg2MjEtNGYxOC1iODc0LTJkMTFkZjdlZmI2MiIsImh0dHBzOi8vZGF0YWxvb3AuYWkvYXV0aG9yaXphdGlvbiI6eyJ1c2VyX3R5cGUiOiJhcGlrZXkiLCJyb2xlcyI6W119fQ.GlmZ1z9pjnDsdPoHc81inCZVJ-ZmZiwBS4gXfJIl3Ns2EwKl3LcJvDxUCU5ag6s_UpBhx1cSPJZhYe5eXrOjVORD1UJ4wPcVsd1_rzK5PN_skIsOjBdb7IngbAWWfW8cth_ByrKBWtEkGTwt40eN5FpCt-Wy7QP0spuBl_Tye7k3ReynSsO8au6W7qUm4PsvU4UHKWjywRQSH3usfOrsIwFJW4NyIAGdOyHS5Gekba1s26ZygOwlws5EeTFUAmWmLYKRYKh9K_n5e9uWHjgpbxkQsvnCAs9hnACudAMY37LN8KRgdmHOiaU-OZ1c7rSxx_S98a8hihXr2KYRbbm8zg'
+    )
+    print("dummy breakpoint")
+    project = dl.projects.get(project_name='IPM development')
+    # dataset = project.datasets.get(dataset_name='nvidia-husam-clone-updated-name')
+
+    # model_id = '67fe3466f41fe3efebd2c433'
+    # print('-HHH- get model')
+    # model = project.models.get(model_id=model_id)
+    # print('-HHH- create model adapter')
+    # model_adapter = ModelAdapter(model)
+    # predict_res = model_adapter.predict_items(
+    #     items=[
+    #         dataset.items.get(item_id='67ff9d8a18076275e55bd5ea'),
+    #         dataset.items.get(item_id='67fbfb21489a0f6f359ee478'),
+    #     ]
+    # )
+
+    # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
+    # print(f'-HHH- predict res: {predict_res}')
+    model_name = 'rd-dert-sdk-clone-2'
+    model = project.models.get(model_name=model_name)
+    model.status = 'pre-trained'
+    model.update()
+    print(f'-HHH- create model adapter')
+    model_adapter = ModelAdapter(project.models.get(model_name=model_name))
+    print(f'-HHH- run train model')
+    # model_adapter.train_model(model=model)
+    # print(f'-HHH- train model completed')
+
+    # model_path = r'C:\Users\1Husam\.dataloop\models\rf-detr-tex4l\model.pth'
+
+    # print("-HHH- 249")
+    # model = RFDETRBase(pretrain_weights=model_path, device='cpu')
+    # print("-HHH- 251")
