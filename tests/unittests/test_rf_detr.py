@@ -5,9 +5,8 @@ import json
 import glob
 import os
 import cv2
-import matplotlib.pyplot as plt
 from model_adapter import ModelAdapter
-from rfdetr import RFDETRBase, RFDETRLarge
+from rfdetr import RFDETRBase
 
 
 class TestModelAdapter(unittest.TestCase):
@@ -61,27 +60,17 @@ class TestModelAdapter(unittest.TestCase):
 
             os.chdir(self.project_root)
             adapter = ModelAdapter(model_entity=dummy_model)
-            item_stream, item = self.prepare_item(local_item_name=local_item_name)
+            adapter.model = RFDETRBase()
 
-            print(f'-HHH- type of item_stream: {type(item_stream)} type of item: {type(item)}')
+            item_stream, item = self.prepare_item(local_item_name=local_item_name)
 
             # Handling Annotations of dummy item
             output_collection = dl.AnnotationCollection(item=item)
-            print(f'-HHH- item_stream: {item_stream}')
             img = cv2.imread(item_stream)
             if img is None:
                 raise ValueError(f"Failed to read image from {item_stream}")
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            # Display the image for debugging
-            # plt.figure(figsize=(10, 10))
-            # plt.imshow(img)
-            # plt.axis('off')
-            # plt.show()
-            # Convert BGR to RGB
-            model = RFDETRBase()
-            print(f"-HHH_ test patch {img.shape}")
-            predict_res = model.predict(images=[img])
-            print(f'-HHH- predict_res: {predict_res}')
+
             output_annotations = adapter.predict(batch=img)[0]
             for annotation in output_annotations:
                 output_collection.add(annotation)
