@@ -1,7 +1,7 @@
 {
     "name": "rf-detr",
     "displayName": "RoboFlow DETR",
-    "version": "1.0.55",
+    "version": "0.0.1",
     "scope": "project",
     "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
     "attributes": {
@@ -13,6 +13,11 @@
         "Media Type": [
             "All Media Types"
         ]
+    },
+    "codebase": {
+        "type": "git",
+        "gitUrl": "https://github.com/dataloop-ai-apps/rf-detr-adapter.git",
+        "gitTag": "0.0.1"
     },
     "components": {
         "computeConfigs": [

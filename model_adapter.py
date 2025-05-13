@@ -161,6 +161,9 @@ class ModelAdapter(dl.BaseModelAdapter):
             The number of workers is set to 0 to avoid multiprocessing issues.
         """
         train_config_dict = self.configuration.get('train_configs', {})
+        class_names = None
+        if self.model_entity.dataset.instance_map is not None:
+            class_names = list(self.model_entity.dataset.instance_map.keys())
 
         # Initialize with required parameters
         return TrainConfig(
@@ -178,9 +181,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             early_stopping_patience=train_config_dict.get('early_stopping_patience', 10),
             early_stopping_min_delta=train_config_dict.get('early_stopping_min_delta', 0.001),
             early_stopping_use_ema=train_config_dict.get('early_stopping_use_ema', False),
-            class_names=(
-                list(self.model_entity.dataset.instance_map.keys()) if self.model_entity.dataset.instance_map else None
-            ),
+            class_names=class_names,
         )
 
     def on_epoch_end(self, data: dict, output_path: str, faas_callback: Optional[Callable] = None) -> None:
@@ -196,6 +197,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         Args:
             data (dict): Dictionary containing epoch training data and metrics
+            output_path (str): Path where model outputs and checkpoints will be saved
             faas_callback (Optional[Callable]): Optional callback function to report progress,
                                               takes current epoch and total epochs as arguments
 
@@ -222,7 +224,7 @@ class ModelAdapter(dl.BaseModelAdapter):
                 else:
                     value = NaN_dict.get(metric_name, 0)
                 logger.warning(f'Value is not finite. For figure {metric_name} and legend metrics using value {value}')
-            samples.append(dl.PlotSample(figure=metric_name, legend='matrics', x=self.current_epoch, y=value))
+            samples.append(dl.PlotSample(figure=metric_name, legend='metrics', x=self.current_epoch, y=value))
         self.model_entity.metrics.create(samples=samples, dataset_id=self.model_entity.dataset_id)
 
         self.configuration['start_epoch'] = self.current_epoch + 1
@@ -268,11 +270,12 @@ class ModelAdapter(dl.BaseModelAdapter):
         default_weights = os.path.join('/tmp/app/weights', model_filename)
 
         # when weights_path is None, the model will be loaded from the default weights
-        weights_path = None
         if os.path.isfile(local_model_filepath):
             weights_path = local_model_filepath
         elif os.path.isfile(default_weights):
             weights_path = default_weights
+        else:
+            weights_path = None
 
         use_rf_detr_large = self.configuration.get('use_rf_detr_large', False)
         if model_filename == 'rf-detr-large.pth':
@@ -441,13 +444,14 @@ class ModelAdapter(dl.BaseModelAdapter):
         self.model.callbacks["on_fit_epoch_end"].append(
             lambda data: self.on_epoch_end(data, output_path, kwargs.get('on_epoch_end_callback'))
         )
+
+        training_kwargs = {}
+        if not torch.cuda.is_bf16_supported():
+            logger.warning("CUDA device does not support bfloat16. Using fp16_eval=False and amp=False")
+            training_kwargs = {'fp16_eval': False, 'amp': False}
+
         logger.info('start rf-detr training')
-        self.model.train_from_config(
-            config=self.train_config,
-            resume=resume_checkpoint,
-            # this will be added if bf16 isnt supported
-            **({'fp16_eval': False, 'amp': False} if not torch.cuda.is_bf16_supported() else {}),
-        )
+        self.model.train_from_config(config=self.train_config, resume=resume_checkpoint, **training_kwargs)
 
         #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
         if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == self.train_config.epochs:
@@ -455,46 +459,3 @@ class ModelAdapter(dl.BaseModelAdapter):
             self.model_entity.update()
 
         logger.info('Training completed')
-
-
-if __name__ == '__main__':
-    # Smart login with token handling
-    # if dl.token_expired():
-    #     dl.login()
-
-    dl.login_api_key(
-        api_key='eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJlbWFpbCI6Imh1c2FtLm1AZGF0YWxvb3AuYWkiLCJpc3MiOiJodHRwczovL2dhdGUuZGF0YWxvb3AuYWkvMSIsImF1ZCI6Imh0dHBzOi8vZ2F0ZS5kYXRhbG9vcC5haS9hcGkvdjEiLCJpYXQiOjE3NDQwMzE5MjksImV4cCI6MTc3NDc5MDMyOSwic3ViIjoiYXBpa2V5fDM1YWQ0NWVjLTg2MjEtNGYxOC1iODc0LTJkMTFkZjdlZmI2MiIsImh0dHBzOi8vZGF0YWxvb3AuYWkvYXV0aG9yaXphdGlvbiI6eyJ1c2VyX3R5cGUiOiJhcGlrZXkiLCJyb2xlcyI6W119fQ.GlmZ1z9pjnDsdPoHc81inCZVJ-ZmZiwBS4gXfJIl3Ns2EwKl3LcJvDxUCU5ag6s_UpBhx1cSPJZhYe5eXrOjVORD1UJ4wPcVsd1_rzK5PN_skIsOjBdb7IngbAWWfW8cth_ByrKBWtEkGTwt40eN5FpCt-Wy7QP0spuBl_Tye7k3ReynSsO8au6W7qUm4PsvU4UHKWjywRQSH3usfOrsIwFJW4NyIAGdOyHS5Gekba1s26ZygOwlws5EeTFUAmWmLYKRYKh9K_n5e9uWHjgpbxkQsvnCAs9hnACudAMY37LN8KRgdmHOiaU-OZ1c7rSxx_S98a8hihXr2KYRbbm8zg'
-    )
-    print("dummy breakpoint")
-    project = dl.projects.get(project_name='IPM development')
-    # dataset = project.datasets.get(dataset_name='nvidia-husam-clone-updated-name')
-
-    # model_id = '67fe3466f41fe3efebd2c433'
-    # print('-HHH- get model')
-    # model = project.models.get(model_id=model_id)
-    # print('-HHH- create model adapter')
-    # model_adapter = ModelAdapter(model)
-    # predict_res = model_adapter.predict_items(
-    #     items=[
-    #         dataset.items.get(item_id='67ff9d8a18076275e55bd5ea'),
-    #         dataset.items.get(item_id='67fbfb21489a0f6f359ee478'),
-    #     ]
-    # )
-
-    # predict_res = model_adapter.predict_items(items=[dataset.items.get(item_id='67ff9d8a18076275e55bd5ea')])
-    # print(f'-HHH- predict res: {predict_res}')
-    model_name = 'rd-dert-sdk-clone-2'
-    model = project.models.get(model_name=model_name)
-    model.status = 'pre-trained'
-    model.update()
-    print(f'-HHH- create model adapter')
-    model_adapter = ModelAdapter(project.models.get(model_name=model_name))
-    print(f'-HHH- run train model')
-    # model_adapter.train_model(model=model)
-    # print(f'-HHH- train model completed')
-
-    # model_path = r'C:\Users\1Husam\.dataloop\models\rf-detr-tex4l\model.pth'
-
-    # print("-HHH- 249")
-    # model = RFDETRBase(pretrain_weights=model_path, device='cpu')
-    # print("-HHH- 251")
