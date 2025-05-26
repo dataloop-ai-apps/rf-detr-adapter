@@ -1,12 +1,12 @@
 {
   "name": "rf-detr",
-  "displayName": "RoboFlow DETR",
+  "displayName": "RF-DETR",
   "version": "0.0.4",
   "scope": "public",
   "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
   "attributes": {
     "Category": "Model",
-    "Provider": "Dataloop",
+    "Provider": "RoboFlow",
     "Deployed By": "Dataloop",
     "License": "MIT",
     "Application Type": "Pipeline Node",
