@@ -398,6 +398,8 @@ class ModelAdapter(dl.BaseModelAdapter):
             src_images_path = os.path.join(data_path, subset_name, 'items', subset_name)
             dst_images_path = os.path.join(data_path, dist_dir_name)
             ModelAdapter._copy_files(src_images_path, dst_images_path)
+            shutil.rmtree(src_images_path)
+            shutil.rmtree(os.path.join(data_path, subset_name, 'json'))
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
