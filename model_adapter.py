@@ -4,6 +4,7 @@ import os
 import shutil
 from typing import List, Any, Optional, Callable
 import numpy as np
+from PIL import Image
 import torch
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
@@ -135,6 +136,22 @@ class ModelAdapter(dl.BaseModelAdapter):
             result["recall(B)"] = None
 
         return result
+
+    @staticmethod
+    def _item_to_image(item):
+        """
+        Preprocess items before calling the `predict` functions.
+        Convert item to numpy array.
+
+        Args:
+            item: A Dataloop item object containing an image
+
+        Returns:
+            numpy.ndarray: The image as a RGB numpy array
+        """
+        buffer = item.download(save_locally=False)
+        image = np.asarray(Image.open(buffer).convert('RGB'))
+        return image
 
     def _get_rf_detr_train_config(self, data_path: str, output_path: str) -> TrainConfig:
         """
