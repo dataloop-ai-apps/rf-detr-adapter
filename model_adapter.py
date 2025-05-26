@@ -412,7 +412,13 @@ class ModelAdapter(dl.BaseModelAdapter):
 
             # copy images from <data_path>/<subset_name>/items/<subset_name> to <data_path>/<dist_dir_name>
             # for example :67f3d54728294f8e79c43965/train/items/train/0642b33245.jpg will move to 67f3d54728294f8e79c43965/train/0642b33245.jpg
-            src_images_path = os.path.join(data_path, subset_name, 'items', subset_name)
+            src_parent_dir = os.path.join(data_path, subset_name, 'items')
+            # Get all subdirectories in src_images_path
+            src_subdirs = [d for d in os.listdir(src_parent_dir) if os.path.isdir(os.path.join(src_parent_dir, d))]
+            if len(src_subdirs) == 1:
+                src_images_path = os.path.join(src_parent_dir, src_subdirs[0])
+            else:
+                raise Exception(f'Found {len(src_subdirs)} subdirectories in {src_parent_dir}')
             dst_images_path = os.path.join(data_path, dist_dir_name)
             ModelAdapter._copy_files(src_images_path, dst_images_path)
             shutil.rmtree(src_images_path)
