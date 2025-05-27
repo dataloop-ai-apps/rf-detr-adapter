@@ -4,6 +4,7 @@ import os
 import shutil
 from typing import List, Any, Optional, Callable
 import numpy as np
+from PIL import Image
 import torch
 import dtlpy as dl
 from dtlpyconverters import services, coco_converters
@@ -306,10 +307,12 @@ class ModelAdapter(dl.BaseModelAdapter):
                 num_classes=num_classes,  # Pass the correct number of classes
             )
 
-    # rf-detr is resize, normalize and convert to tensor in the model
-    # nothing to do here
-    # def prepare_item_func(self, item):
-    #     pass
+    def prepare_item_func(self, item):
+        if 'image' not in item.mimetype:
+            raise Exception('RF-DETR only supports images')
+        buffer = item.download(save_locally=False)
+        image = np.asarray(Image.open(buffer).convert('RGB'))
+        return image, item
 
     def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
         """Run predictions on a batch of data.
@@ -395,9 +398,17 @@ class ModelAdapter(dl.BaseModelAdapter):
 
             # copy images from <data_path>/<subset_name>/items/<subset_name> to <data_path>/<dist_dir_name>
             # for example :67f3d54728294f8e79c43965/train/items/train/0642b33245.jpg will move to 67f3d54728294f8e79c43965/train/0642b33245.jpg
-            src_images_path = os.path.join(data_path, subset_name, 'items', subset_name)
+            src_parent_dir = os.path.join(data_path, subset_name, 'items')
+            # Get all subdirectories in src_images_path
+            src_subdirs = [d for d in os.listdir(src_parent_dir) if os.path.isdir(os.path.join(src_parent_dir, d))]
+            if len(src_subdirs) == 1:
+                src_images_path = os.path.join(src_parent_dir, src_subdirs[0])
+            else:
+                raise Exception(f'Found {len(src_subdirs)} subdirectories in {src_parent_dir}')
             dst_images_path = os.path.join(data_path, dist_dir_name)
             ModelAdapter._copy_files(src_images_path, dst_images_path)
+            shutil.rmtree(src_images_path)
+            shutil.rmtree(os.path.join(data_path, subset_name, 'json'))
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
