@@ -312,7 +312,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             raise Exception('RF-DETR only supports images')
         buffer = item.download(save_locally=False)
         image = np.asarray(Image.open(buffer).convert('RGB'))
-        return image, item
+        return image
 
     def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
         """Run predictions on a batch of data.
