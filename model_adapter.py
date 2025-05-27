@@ -137,22 +137,6 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         return result
 
-    @staticmethod
-    def _item_to_image(item):
-        """
-        Preprocess items before calling the `predict` functions.
-        Convert item to numpy array.
-
-        Args:
-            item: A Dataloop item object containing an image
-
-        Returns:
-            numpy.ndarray: The image as a RGB numpy array
-        """
-        buffer = item.download(save_locally=False)
-        image = np.asarray(Image.open(buffer).convert('RGB'))
-        return image
-
     def _get_rf_detr_train_config(self, data_path: str, output_path: str) -> TrainConfig:
         """
         Get RF-DETR training configuration from model configuration.
@@ -323,10 +307,12 @@ class ModelAdapter(dl.BaseModelAdapter):
                 num_classes=num_classes,  # Pass the correct number of classes
             )
 
-    # rf-detr is resize, normalize and convert to tensor in the model
-    # nothing to do here
-    # def prepare_item_func(self, item):
-    #     pass
+    def prepare_item_func(self, item):
+        if 'image' not in item.mimetype:
+            raise Exception('RF-DETR only supports images')
+        buffer = item.download(save_locally=False)
+        image = np.asarray(Image.open(buffer).convert('RGB'))
+        return image, item
 
     def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
         """Run predictions on a batch of data.
