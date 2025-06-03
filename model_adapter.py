@@ -294,6 +294,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         image = np.asarray(Image.open(buffer).convert('RGB'))
         return image
 
+
     def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
         """Run predictions on a batch of data.
 
@@ -404,6 +405,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
             logger.info(f'Moving directory from {tmp_dir_path} to {dst_images_path}')
             shutil.move(tmp_dir_path, dst_images_path)
+
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
