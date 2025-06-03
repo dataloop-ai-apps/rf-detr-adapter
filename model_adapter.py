@@ -16,26 +16,6 @@ logger = logging.getLogger('rf-detr-adapter')
 
 
 class ModelAdapter(dl.BaseModelAdapter):
-    @staticmethod
-    def _copy_files(src_path: str, dst_path: str) -> None:
-        """
-        Copy all files from source directory to destination directory.
-
-        Args:
-            src_path (str): Path to source directory containing files to copy
-            dst_path (str): Path to destination directory where files will be copied
-
-        Returns:
-            None
-        """
-        logger.info(f'Copying files from {src_path} to {dst_path}')
-        os.makedirs(dst_path, exist_ok=True)
-        for filename in os.listdir(src_path):
-            file_path = os.path.join(src_path, filename)
-            if os.path.isfile(file_path):
-                new_file_path = os.path.join(dst_path, filename)
-                shutil.copy(file_path, new_file_path)
-        logger.info('File copy completed')
 
     @staticmethod
     def _process_coco_json(output_annotations_path: str) -> None:
@@ -396,19 +376,34 @@ class ModelAdapter(dl.BaseModelAdapter):
             # convert coco.json to _annotations.coco.json
             ModelAdapter._process_coco_json(output_annotations_path)
 
-            # copy images from <data_path>/<subset_name>/items/<subset_name> to <data_path>/<dist_dir_name>
-            # for example :67f3d54728294f8e79c43965/train/items/train/0642b33245.jpg will move to 67f3d54728294f8e79c43965/train/0642b33245.jpg
+            # Copy images from <data_path>/<subset_name>/items/<directory_name> to <data_path>/<dist_dir_name>
+            # The directory_name under items/ can be different from subset_name
+            # For example: <data_path>/train/items/custom_dir/image.jpg will move to <data_path>/train/image.jpg
             src_parent_dir = os.path.join(data_path, subset_name, 'items')
-            # Get all subdirectories in src_images_path
+            # Get the first directory under items/ regardless of name
             src_subdirs = [d for d in os.listdir(src_parent_dir) if os.path.isdir(os.path.join(src_parent_dir, d))]
             if len(src_subdirs) == 1:
                 src_images_path = os.path.join(src_parent_dir, src_subdirs[0])
             else:
                 raise Exception(f'Found {len(src_subdirs)} subdirectories in {src_parent_dir}')
             dst_images_path = os.path.join(data_path, dist_dir_name)
-            ModelAdapter._copy_files(src_images_path, dst_images_path)
-            shutil.rmtree(src_images_path)
-            shutil.rmtree(os.path.join(data_path, subset_name, 'json'))
+
+            # Moving files to a temporary directory first because in most cases source and destination
+            # directories have the same name (e.g. 'train' -> 'train'). Direct move would fail.
+            tmp_dir_path = os.path.join(data_path, f'tmp_dir_{subset_name}')
+            json_file_path = os.path.join(output_annotations_path, '_annotations.coco.json')
+            logger.info(f'Moving directory from {src_images_path} and {json_file_path} to {tmp_dir_path}')
+            shutil.move(src_images_path, tmp_dir_path)
+            shutil.move(json_file_path, tmp_dir_path)
+
+            # Remove the original subset directory
+            logger.info(f'Removing {os.path.join(data_path, subset_name)}')
+            shutil.rmtree(os.path.join(data_path, subset_name))
+            if os.path.exists(dst_images_path):
+                shutil.rmtree(os.path.join(dst_images_path))
+
+            logger.info(f'Moving directory from {tmp_dir_path} to {dst_images_path}')
+            shutil.move(tmp_dir_path, dst_images_path)
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
