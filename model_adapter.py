@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+from pathlib import Path
 from typing import List, Any, Optional, Callable
 import numpy as np
 from PIL import Image
@@ -294,7 +295,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         image = np.asarray(Image.open(buffer).convert('RGB'))
         return image
 
-
     def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
         """Run predictions on a batch of data.
 
@@ -325,6 +325,37 @@ class ModelAdapter(dl.BaseModelAdapter):
             batch_annotations.append(image_annotations)
         return batch_annotations
 
+    def print_data_content(self, prefix: str, data_path: str) -> None:
+        """Print the content of the data directory up to 10 levels deep.
+
+        Args:
+            data_path (str): Path to the directory to explore
+            **kwargs: Additional keyword arguments (unused)
+        """
+
+        output = []
+
+        def explore_dir(path: str, level: int = 0, max_level: int = 10):
+            if level >= max_level:
+                return
+
+            try:
+                for item in os.listdir(path):
+                    item_path = os.path.join(path, item)
+                    indent = "-" * level
+                    output.append(f"{indent}{item}")
+
+                    if os.path.isdir(item_path):
+                        explore_dir(item_path, level + 1, max_level)
+            except Exception as e:
+                output.append(f"Error exploring {path}: {str(e)}")
+
+        explore_dir(data_path)
+        # Join all lines with newlines to create final string
+        output_str = '\n'.join(output)
+        # Print the collected output
+        logger.info(f"{prefix} : the contencto of {data_path} is \n {output_str}")
+
     def convert_from_dtlpy(self, data_path: str, **kwargs) -> None:
         """Convert dataset from Dataloop format to COCO format.
 
@@ -338,6 +369,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         Raises:
             ValueError: If model has no labels defined or if no box annotations are found in a subset
         """
+        logger.info("-HHHH- new code")
+        self.print_data_content("before convert", data_path)
         logger.info(f'Converting dataset from Dataloop format to COCO format at {data_path}')
 
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
@@ -377,16 +410,17 @@ class ModelAdapter(dl.BaseModelAdapter):
             # convert coco.json to _annotations.coco.json
             ModelAdapter._process_coco_json(output_annotations_path)
 
-            # Copy images from <data_path>/<subset_name>/items/<directory_name> to <data_path>/<dist_dir_name>
-            # The directory_name under items/ can be different from subset_name
-            # For example: <data_path>/train/items/custom_dir/image.jpg will move to <data_path>/train/image.jpg
+            # Move images from the deepest subdirectory under <data_path>/<subset_name>/items/
+            # to <data_path>/<dist_dir_name>. For example:
+            # From: <data_path>/train/items/dir1/dir2/images.jpg
+            # To:   <data_path>/train/images.jpg
             src_parent_dir = os.path.join(data_path, subset_name, 'items')
-            # Get the first directory under items/ regardless of name
-            src_subdirs = [d for d in os.listdir(src_parent_dir) if os.path.isdir(os.path.join(src_parent_dir, d))]
-            if len(src_subdirs) == 1:
-                src_images_path = os.path.join(src_parent_dir, src_subdirs[0])
-            else:
-                raise Exception(f'Found {len(src_subdirs)} subdirectories in {src_parent_dir}')
+
+            all_files = [f for f in Path(src_parent_dir).rglob('*') if f.is_file() and not f.name.endswith('.json')]
+            if len(all_files) == 0:
+                raise FileNotFoundError(f"No files found in {src_parent_dir}")
+            # take any file parent dir
+            src_images_path = all_files[0].parent
             dst_images_path = os.path.join(data_path, dist_dir_name)
 
             # Moving files to a temporary directory first because in most cases source and destination
@@ -406,6 +440,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             logger.info(f'Moving directory from {tmp_dir_path} to {dst_images_path}')
             shutil.move(tmp_dir_path, dst_images_path)
 
+            self.print_data_content(f"after {subset_name} convert", data_path)
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
@@ -454,7 +489,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         )
 
         training_kwargs = {}
-        if not torch.cuda.is_bf16_supported():
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
             logger.warning("CUDA device does not support bfloat16. Using fp16_eval=False and amp=False")
             training_kwargs = {'fp16_eval': False, 'amp': False}
 
