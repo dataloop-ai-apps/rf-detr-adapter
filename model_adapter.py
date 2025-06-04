@@ -369,8 +369,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         Raises:
             ValueError: If model has no labels defined or if no box annotations are found in a subset
         """
-        logger.info("-HHHH- new code")
-        self.print_data_content("before convert", data_path)
         logger.info(f'Converting dataset from Dataloop format to COCO format at {data_path}')
 
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
@@ -440,7 +438,8 @@ class ModelAdapter(dl.BaseModelAdapter):
             logger.info(f'Moving directory from {tmp_dir_path} to {dst_images_path}')
             shutil.move(tmp_dir_path, dst_images_path)
 
-            self.print_data_content(f"after {subset_name} convert", data_path)
+        # since we had multipe issues related to files location, i want to print the content of the data_path after convert
+        self.print_data_content("after convert", data_path)
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
         """
