@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import shutil
+from pathlib import Path
 from typing import List, Any, Optional, Callable
 import numpy as np
 from PIL import Image
@@ -294,7 +295,6 @@ class ModelAdapter(dl.BaseModelAdapter):
         image = np.asarray(Image.open(buffer).convert('RGB'))
         return image
 
-
     def predict(self, batch: List[Any], **kwargs) -> List[dl.AnnotationCollection]:
         """Run predictions on a batch of data.
 
@@ -377,25 +377,26 @@ class ModelAdapter(dl.BaseModelAdapter):
             # convert coco.json to _annotations.coco.json
             ModelAdapter._process_coco_json(output_annotations_path)
 
-            # Copy images from <data_path>/<subset_name>/items/<directory_name> to <data_path>/<dist_dir_name>
-            # The directory_name under items/ can be different from subset_name
-            # For example: <data_path>/train/items/custom_dir/image.jpg will move to <data_path>/train/image.jpg
+            # Move images from the deepest subdirectory under <data_path>/<subset_name>/items/
+            # to <data_path>/<dist_dir_name>. For example:
+            # From: <data_path>/train/items/dir1/dir2/images.jpg
+            # To:   <data_path>/train/images.jpg
             src_parent_dir = os.path.join(data_path, subset_name, 'items')
-            # Get the first directory under items/ regardless of name
-            src_subdirs = [d for d in os.listdir(src_parent_dir) if os.path.isdir(os.path.join(src_parent_dir, d))]
-            if len(src_subdirs) == 1:
-                src_images_path = os.path.join(src_parent_dir, src_subdirs[0])
-            else:
-                raise Exception(f'Found {len(src_subdirs)} subdirectories in {src_parent_dir}')
             dst_images_path = os.path.join(data_path, dist_dir_name)
 
             # Moving files to a temporary directory first because in most cases source and destination
             # directories have the same name (e.g. 'train' -> 'train'). Direct move would fail.
             tmp_dir_path = os.path.join(data_path, f'tmp_dir_{subset_name}')
+            os.makedirs(tmp_dir_path)
             json_file_path = os.path.join(output_annotations_path, '_annotations.coco.json')
-            logger.info(f'Moving directory from {src_images_path} and {json_file_path} to {tmp_dir_path}')
-            shutil.move(src_images_path, tmp_dir_path)
             shutil.move(json_file_path, tmp_dir_path)
+
+            # move all non json files to tmp_dir_path
+            all_files = [f for f in Path(src_parent_dir).rglob('*') if f.is_file() and not f.name.endswith('.json')]
+            if len(all_files) == 0:
+                raise FileNotFoundError(f"No files found in {src_parent_dir}")
+            for file in all_files:
+                shutil.move(file, tmp_dir_path)
 
             # Remove the original subset directory
             logger.info(f'Removing {os.path.join(data_path, subset_name)}')
@@ -454,7 +455,8 @@ class ModelAdapter(dl.BaseModelAdapter):
         )
 
         training_kwargs = {}
-        if not torch.cuda.is_bf16_supported():
+	# torch.cuda.is_bf16_supported will crash if cuda isnt supported
+        if not torch.cuda.is_available() or not torch.cuda.is_bf16_supported():
             logger.warning("CUDA device does not support bfloat16. Using fp16_eval=False and amp=False")
             training_kwargs = {'fp16_eval': False, 'amp': False}
 
