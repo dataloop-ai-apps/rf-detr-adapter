@@ -6,7 +6,7 @@
   "description": "RF-DETR: SOTA Real-Time Object Detection Model!",
   "attributes": {
     "Category": "Model",
-    "Provider": "RoboFlow",
+    "Provider": "Roboflow",
     "Deployed By": "Dataloop",
     "License": "MIT",
     "Application Type": "Pipeline Node",
