@@ -6,11 +6,11 @@
   "description": "RF-DETR is a state-of-the-art transformer-based object detection model developed by Roboflow. It combines the power of DETR (DEtection TRansformer) architecture with Roboflow's optimizations for real-time performance. The model supports detection of 80 COCO classes with high accuracy and efficient inference capabilities. It's particularly optimized for deployment in production environments with robust performance across various object detection scenarios.",
   "attributes": {
     "Category": "Model",
+    "Computer Vision": "Object Detection",
     "Provider": "Roboflow",
     "Deployed By": "Dataloop",
     "License": "MIT",
-    "Application Type": "Pipeline Node",
-    "Media Type": ["All Media Types"]
+    "Media Type": ["Image"]
   },
   "codebase": {
     "type": "git",
