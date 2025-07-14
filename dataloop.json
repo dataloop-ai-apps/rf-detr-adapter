@@ -174,8 +174,22 @@
         "moduleName": "rf-detr-module",
         "configuration": {
           "weights_filename": "rf-detr-base-coco.pth",
+          "use_rf_detr_large": false,
           "batch_size": 4,
-          "confidence_threshold": 0.25
+          "conf_thres": 0.25,
+          "train_configs": {
+            "epochs": 10,
+            "batch_size": 4,
+            "grad_accum_steps": 4,
+            "lr": 1e-4,
+            "lr_encoder": 1.5e-4,
+            "weight_decay": 1e-4,
+            "use_ema": true,
+            "checkpoint_interval": 10,
+            "early_stopping_patience": 10,
+            "early_stopping_min_delta": 0.001,
+            "early_stopping_use_ema": false
+          }
         },
         "scope": "project", 
         "status": "pre-trained",
@@ -270,8 +284,22 @@
         "moduleName": "rf-detr-module",
         "configuration": {
           "weights_filename": "rf-detr-base-2.pth",
+          "use_rf_detr_large": false,
           "batch_size": 4,
-          "confidence_threshold": 0.25
+          "conf_thres": 0.25,
+          "train_configs": {
+            "epochs": 10,
+            "batch_size": 4,
+            "grad_accum_steps": 4,
+            "lr": 1e-4,
+            "lr_encoder": 1.5e-4,
+            "weight_decay": 1e-4,
+            "use_ema": true,
+            "checkpoint_interval": 10,
+            "early_stopping_patience": 10,
+            "early_stopping_min_delta": 0.001,
+            "early_stopping_use_ema": false
+          }
         },
         "scope": "project",
         "status": "pre-trained",
@@ -366,8 +394,22 @@
         "moduleName": "rf-detr-module",
         "configuration": {
           "weights_filename": "rf-detr-large.pth",
+          "use_rf_detr_large": true,
           "batch_size": 4,
-          "confidence_threshold": 0.25
+          "conf_thres": 0.25,
+          "train_configs": {
+            "epochs": 10,
+            "batch_size": 4,
+            "grad_accum_steps": 4,
+            "lr": 1e-4,
+            "lr_encoder": 1.5e-4,
+            "weight_decay": 1e-4,
+            "use_ema": true,
+            "checkpoint_interval": 10,
+            "early_stopping_patience": 10,
+            "early_stopping_min_delta": 0.001,
+            "early_stopping_use_ema": false
+          }
         },
         "scope": "project",
         "status": "pre-trained",

@@ -50,9 +50,17 @@ class ModelAdapter(dl.BaseModelAdapter):
         for image in coco_data.get('images', []):
             if isinstance(image['id'], str):
                 image['id'] = abs(hash(image['id']))
-            # Remove parent directory from file_name
+            # Update file_name to match new filename format with path information
             if '/' in image['file_name']:
-                image['file_name'] = os.path.basename(image['file_name'])
+                # Convert path separators to underscores and prepend relative path
+                relative_path = os.path.dirname(image['file_name'])
+                filename = os.path.basename(image['file_name'])
+                if relative_path == ".":
+                    image['file_name'] = filename  # Keep original filename for root files
+                else:
+                    image['file_name'] = f"{relative_path.replace('/', '_')}_{filename}"
+            # Add "items_" prefix to file_name
+            image['file_name'] = f"items_{image['file_name']}"
 
         # Convert annotation IDs and image_ids to integers
         for annotation in coco_data.get('annotations', []):
@@ -396,7 +404,15 @@ class ModelAdapter(dl.BaseModelAdapter):
             if len(all_files) == 0:
                 raise FileNotFoundError(f"No files found in {src_parent_dir}")
             for file in all_files:
-                shutil.move(file, tmp_dir_path)
+                # Get the relative path from the source directory
+                relative_path = os.path.relpath(file.parent, src_parent_dir)
+                if relative_path == ".":
+                    new_filename = file.name  # Keep the original filename for root files
+                else:
+                    new_filename = f"{relative_path.replace(os.sep, '_')}_{file.name}"
+                # Create new file path in tmp_dir with unique filename
+                new_file_path = os.path.join(tmp_dir_path, new_filename)
+                shutil.move(file, new_file_path)
 
             # Remove the original subset directory
             logger.info(f'Removing {os.path.join(data_path, subset_name)}')
@@ -465,7 +481,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         #  Check if the model (checkpoint) has already completed training for the specified number of epochs, if so, can start again without resuming
         if 'start_epoch' in self.configuration and self.configuration['start_epoch'] == self.train_config.epochs:
-            self.model_entity.configuration['start_epoch'] = 0
+            self.configuration['start_epoch'] = 0
             self.model_entity.update()
 
         logger.info('Training completed')
