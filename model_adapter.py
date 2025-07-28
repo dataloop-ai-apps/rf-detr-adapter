@@ -322,12 +322,31 @@ class ModelAdapter(dl.BaseModelAdapter):
         if not isinstance(results, list):
             results = [results]
 
-        for detection in results:
+        for i, detection in enumerate(results):
             image_annotations = dl.AnnotationCollection()
+            
+            # Get image dimensions
+            image = batch[i]
+            img_height, img_width = image.shape[:2]
+            
             for xyxy, class_id, conf in zip(detection.xyxy, detection.class_id, detection.confidence):
                 label = self.model.class_names[class_id]
+                
+                # Check and fix boundary issues
+                x1, y1, x2, y2 = xyxy
+                
+                # Clamp coordinates to image boundaries
+                x1_fixed = max(0, min(x1, img_width))
+                y1_fixed = max(0, min(y1, img_height))
+                x2_fixed = max(0, min(x2, img_width))
+                y2_fixed = max(0, min(y2, img_height))
+                
+                # Warn if coordinates were outside boundaries
+                if (x1 != x1_fixed or y1 != y1_fixed or x2 != x2_fixed or y2 != y2_fixed):
+                    logger.warning(f'Bounding box {xyxy} outside image boundaries ({img_width}x{img_height}). Fixed to {x1_fixed, y1_fixed, x2_fixed, y2_fixed}')
+                
                 image_annotations.add(
-                    dl.Box(left=xyxy[0], top=xyxy[1], right=xyxy[2], bottom=xyxy[3], label=label),
+                    dl.Box(left=x1_fixed, top=y1_fixed, right=x2_fixed, bottom=y2_fixed, label=label),
                     model_info={'name': self.model_entity.name, 'model_id': self.model_entity.id, 'confidence': conf},
                 )
             batch_annotations.append(image_annotations)
