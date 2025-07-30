@@ -59,8 +59,6 @@ class ModelAdapter(dl.BaseModelAdapter):
                     image['file_name'] = filename  # Keep original filename for root files
                 else:
                     image['file_name'] = f"{relative_path.replace('/', '_')}_{filename}"
-            # Add "items_" prefix to file_name
-            image['file_name'] = f"items_{image['file_name']}"
 
         # Convert annotation IDs and image_ids to integers
         for annotation in coco_data.get('annotations', []):
