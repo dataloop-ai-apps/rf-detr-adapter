@@ -47,3 +47,7 @@ To fine-tune RF-DETR on a custom dataset using the SDK, follow [this tutorial](h
 ## Configuration
 
 For information on how to configure training parameters (e.g., learning rate, batch size, number of epochs), please refer to the official [RF-DETR training section](https://github.com/roboflow/rf-detr/blob/develop/README.md#training).
+
+## Known issues
+
+- **RF-DETR low GPU utilization during training**: Some users have reported relatively low GPU utilization (around 50–60%) and slower-than-expected training on certain setups. The RF-DETR team is aware and tracking this in [roboflow/rf-detr#291](https://github.com/roboflow/rf-detr/issues/291).
