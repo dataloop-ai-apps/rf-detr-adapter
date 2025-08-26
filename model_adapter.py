@@ -66,7 +66,8 @@ class ModelAdapter(dl.BaseModelAdapter):
                 annotation['id'] = abs(hash(annotation['id']))
             if isinstance(annotation['image_id'], str):
                 annotation['image_id'] = abs(hash(annotation['image_id']))
-
+        if 'info' not in coco_data:
+            coco_data['info'] = {'description': 'dataset'}
         with open(dest_json_path, 'w') as f:
             json.dump(coco_data, f, indent=2)
 
@@ -170,6 +171,7 @@ class ModelAdapter(dl.BaseModelAdapter):
             early_stopping_min_delta=train_config_dict.get('early_stopping_min_delta', 0.001),
             early_stopping_use_ema=train_config_dict.get('early_stopping_use_ema', False),
             class_names=class_names,
+            run_test=False
         )
 
     def on_epoch_end(self, data: dict, output_path: str, faas_callback: Optional[Callable] = None) -> None:
@@ -200,7 +202,7 @@ class ModelAdapter(dl.BaseModelAdapter):
 
         yolo_metrics = ModelAdapter._extract_yolo_like_metrics(data)
         for metric_name, value in yolo_metrics.items():
-            if not np.isfinite(value):
+            if value is None or not np.isfinite(value):
                 filters = dl.Filters(resource=dl.FiltersResource.METRICS)
                 filters.add(field='modelId', values=self.model_entity.id)
                 filters.add(field='figure', values=metric_name)
@@ -439,6 +441,16 @@ class ModelAdapter(dl.BaseModelAdapter):
 
             logger.info(f'Moving directory from {tmp_dir_path} to {dst_images_path}')
             shutil.move(tmp_dir_path, dst_images_path)
+
+        # new rf detr version requires test set, to solve this issue we copy validation set to test set
+        # this test set will be ignored, since we set run_test=False in the train_config
+        valid_path = os.path.join(data_path, 'valid')
+        test_path = os.path.join(data_path, 'test') 
+        if os.path.exists(valid_path):
+            logger.info(f'Copying validation set from {valid_path} to {test_path}')
+            if os.path.exists(test_path):
+                shutil.rmtree(test_path)
+            shutil.copytree(valid_path, test_path)
 
 
     def train(self, data_path: str, output_path: str, **kwargs) -> None:
