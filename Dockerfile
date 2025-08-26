@@ -29,7 +29,7 @@ RUN pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url h
 # Install the rest using default PyPI
 RUN pip install \
     dtlpy \
-    git+https://github.com/roboflow/rf-detr.git \
+    rfdetr \
     git+https://github.com/dataloop-ai-apps/dtlpy-converters \
     numpy==1.26.4
 
