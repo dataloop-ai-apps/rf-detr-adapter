@@ -353,9 +353,9 @@ class ModelAdapter(dl.BaseModelAdapter):
         return batch_annotations
 
     def convert_from_dtlpy(self, data_path: str, **kwargs) -> None:
-        """Convert dataset from Dataloop format to COCO format.
+        """Convert dataset from DDOE format to COCO format.
 
-        This method converts a Dataloop dataset to COCO format required by RF-DETR. It validates box annotations
+        This method converts a DDOE dataset to COCO format required by RF-DETR. It validates box annotations
         in each subset (train/validation) and converts them to match RF-DETR's train/valid directory structure.
 
         Args:
@@ -365,7 +365,7 @@ class ModelAdapter(dl.BaseModelAdapter):
         Raises:
             ValueError: If model has no labels defined or if no box annotations are found in a subset
         """
-        logger.info(f'Converting dataset from Dataloop format to COCO format at {data_path}')
+        logger.info(f'Converting dataset from DDOE format to COCO format at {data_path}')
 
         subsets = self.model_entity.metadata.get("system", dict()).get("subsets", None)
         if len(self.model_entity.labels) == 0:
